@@ -12,20 +12,22 @@ import type {
   SatisfactionReport,
   SpeakerOutput,
   Stance,
+  Utterance,
 } from "@/lib/types";
 import { getMeetingType } from "@/data/meetingTypes";
 import type { ProposalTally } from "./tally";
-import { roleById, hashString, nameOf, pick, roleTitleOf, stanceToConsent } from "./util";
+import { hashString, nameOf, pick, resolverOf, roleTitleOf, stanceToConsent } from "./util";
+import type { SpeakerUserOpts } from "./prompts";
 
 const BASE_STANCES: Stance[] = ["support", "concern", "oppose", "neutral", "strong_support", "concern", "support"];
 
-function roleOf(p: Participant) {
-  return roleById(p.roleId);
+function roleOf(state: MeetingState, p: Participant) {
+  return resolverOf(state)(p.roleId);
 }
 
-export function mockInitialStance(p: Participant): { stance: Stance; summary: string } {
+export function mockInitialStance(state: MeetingState, p: Participant): { stance: Stance; summary: string } {
   const stance = BASE_STANCES[hashString(p.id) % BASE_STANCES.length];
-  const interest = roleOf(p)?.interests[0] ?? "自分の暮らし";
+  const interest = roleOf(state, p)?.interests[0] ?? "自分の暮らし";
   const verb: Record<Stance, string> = {
     strong_support: "積極的に進めたい",
     support: "基本的に前向き",
@@ -38,7 +40,7 @@ export function mockInitialStance(p: Participant): { stance: Stance; summary: st
 
 export function mockStances(state: MeetingState): Record<string, { stance: Stance; summary: string }> {
   const out: Record<string, { stance: Stance; summary: string }> = {};
-  for (const p of state.config.participants) out[p.id] = mockInitialStance(p);
+  for (const p of state.config.participants) out[p.id] = mockInitialStance(state, p);
   return out;
 }
 
@@ -54,15 +56,15 @@ const APPROACHES = [
 ];
 
 export function mockBrief(state: MeetingState, p: Participant): ResearchBrief {
-  const role = roleOf(p);
+  const role = roleOf(state, p);
   const topic = state.config.topic;
   const approach = pick(APPROACHES, p.id + "ap");
   const interest = role?.interests[0] ?? "自分の暮らし";
   const concern = role?.concerns[0] ?? "負担の増加";
-  const q = [`${topic} 現状`, `${topic} ${roleTitleOf(p)} 影響`, `${topic} 事例 海外`].slice(0, 2 + (hashString(p.id) % 2));
+  const q = [`${topic} 現状`, `${topic} ${roleTitleOf(p, resolverOf(state))} 影響`, `${topic} 事例 海外`].slice(0, 2 + (hashString(p.id) % 2));
   const sources = [
     { title: `${topic}に関する調査（ダミー）`, url: `https://example.com/mock/${hashString(p.id + "a") % 1000}` },
-    { title: `${roleTitleOf(p)}の現場から（ダミー）`, url: `https://example.org/mock/${hashString(p.id + "b") % 1000}` },
+    { title: `${roleTitleOf(p, resolverOf(state))}の現場から（ダミー）`, url: `https://example.org/mock/${hashString(p.id + "b") % 1000}` },
   ];
   return {
     participantId: p.id,
@@ -72,7 +74,7 @@ export function mockBrief(state: MeetingState, p: Participant): ResearchBrief {
     summary: `${approach}「${topic}」は、${interest}に直結する話だと分かった。一方で${concern}という声も多く、数字だけでは見えない事情がある。会議では自分の立場の事情を具体的に伝えたい。`,
     keyFacts: [
       { fact: `${topic}をめぐっては、地域や立場によって受け止めが大きく割れている。`, source: sources[0] },
-      { fact: `${roleTitleOf(p)}の立場では、${concern}が最大の関心事になっている。`, source: sources[1] },
+      { fact: `${roleTitleOf(p, resolverOf(state))}の立場では、${concern}が最大の関心事になっている。`, source: sources[1] },
     ],
     talkingPoints: [`${interest}を守れる形にしてほしい`, `${concern}への手当てを先に示すべき`],
     questionsToRaise: [`費用は誰がどう負担するのか`, `やってみてうまくいかなかったときの見直しの仕組みは`],
@@ -155,8 +157,8 @@ const THOUGHT: Record<Stance, string> = {
   oppose: "ここで譲ると組織に戻って説明がつかない。見返りがなければ折れられない。",
 };
 
-export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef): SpeakerOutput {
-  const role = roleOf(p);
+export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef, opts: SpeakerUserOpts = {}): SpeakerOutput {
+  const role = roleOf(state, p);
   const n = state.config.participants.length;
   const progress = state.phaseIndex / Math.max(1, getMeetingType(state.config.meetingTypeId).phases.length - 1);
   let stance = BASE_STANCES[(hashString(p.id) + Math.floor(state.turn / 5)) % BASE_STANCES.length];
@@ -164,7 +166,10 @@ export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef
   if (progress > 0.6 && stance === "oppose") stance = "concern";
   if (progress > 0.75 && stance === "concern" && hashString(p.id + "c") % 2 === 0) stance = "neutral";
   const others = state.config.participants.filter((x) => x.id !== p.id);
-  const other = others.length ? others[(hashString(p.id) + state.turn) % others.length] : p;
+  // Respond to the previous speaker when there is one (so exchanges are real), otherwise to someone else.
+  const prevSpeech = [...state.utterances].reverse().find((u) => u.kind === "speech" && u.speakerId !== p.id);
+  const prevSpeaker = prevSpeech ? others.find((x) => x.id === prevSpeech.speakerId) : undefined;
+  const other = prevSpeaker ?? (others.length ? others[(hashString(p.id) + state.turn) % others.length] : p);
   const fill = (t: string) =>
     t
       .replaceAll("{topic}", state.config.topic)
@@ -180,7 +185,8 @@ export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef
   const ideaPhase = !["opening", "closing"].includes(phase.id);
   let newProposal: SpeakerOutput["newProposal"] = null as unknown as undefined;
   newProposal = undefined;
-  if (ideaPhase && proposals.length < Math.max(2, Math.min(4, n)) && state.turn % 4 === 1) {
+  const chairDraft = !!opts.ledByChair && /案|提言|合意|とりまとめ/.test(phase.name) && !/閉会|開会/.test(phase.name);
+  if ((ideaPhase && proposals.length < Math.max(2, Math.min(4, n)) && state.turn % 4 === 1) || chairDraft) {
     const i = proposals.length + 1;
     const shapes = [
       { title: `段階的に導入し、${role?.concerns[0] ?? "負担"}に配慮する`, kind: "policy" as const },
@@ -191,7 +197,7 @@ export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef
     const s = shapes[(i - 1) % shapes.length];
     newProposal = {
       title: s.title,
-      body: `${p.name}（${roleTitleOf(p)}）の提案。${state.config.topic}について、${s.title}。具体的な進め方は、関係者で協議して決める。`,
+      body: `${p.name}（${roleTitleOf(p, resolverOf(state))}）の提案。${state.config.topic}について、${s.title}。具体的な進め方は、関係者で協議して決める。`,
       kind: s.kind,
     };
   }
@@ -204,7 +210,7 @@ export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef
     text,
     innerThought,
     stance,
-    addressedTo: stance === "support" || stance === "strong_support" ? [] : [other.id],
+    addressedTo: (stance === "support" || stance === "strong_support") && state.turn % 3 !== 0 ? [] : other.id !== p.id ? [other.id] : [],
     newProposal,
     proposalStances: Object.fromEntries(proposalStances.map((x) => [x.id, x.stance])),
   };
@@ -241,7 +247,7 @@ export function mockScribe(state: MeetingState, prev: Minutes, newTurn: number):
     id: `issue_${pr.id}`,
     title: `「${pr.title}」をどう進めるか`,
     positions: parts.map((p) => {
-      const role = roleOf(p);
+      const role = roleOf(state, p);
       return {
         participantId: p.id,
         position: `${pr.support[p.id] ? "意見表明済み" : "未表明"}：${role?.concerns[0] ?? "条件の確認"}を踏まえて判断`,
@@ -253,25 +259,46 @@ export function mockScribe(state: MeetingState, prev: Minutes, newTurn: number):
     resolved: pr.status === "agreed",
   }));
   const keyExchanges: KeyExchange[] = [...prev.keyExchanges];
-  const kinds: KeyExchange["kind"][] = ["conflict", "tradeoff", "concession", "alliance", "breakthrough", "reframe"];
   const spoken = state.utterances.filter((u) => u.kind === "speech");
-  for (let i = 1; i < spoken.length && keyExchanges.length < 6; i++) {
+  const bad = (s?: Stance) => s === "oppose" || s === "concern";
+  const mk = (a: Utterance, b: Utterance, kind: KeyExchange["kind"]): KeyExchange => ({
+    id: `kx_${b.id}`,
+    title: `${nameOf(state, a.speakerId)}と${nameOf(state, b.speakerId)}のやりとり`,
+    kind,
+    utteranceIds: [a.id, b.id],
+    participantIds: [a.speakerId, b.speakerId],
+    summary:
+      kind === "conflict"
+        ? `${nameOf(state, b.speakerId)}が${nameOf(state, a.speakerId)}の発言に対し、立場の違いを明らかにした。`
+        : kind === "concession"
+          ? `${nameOf(state, a.speakerId)}の懸念に対し、${nameOf(state, b.speakerId)}が歩み寄る姿勢を見せた。`
+          : `${nameOf(state, a.speakerId)}と${nameOf(state, b.speakerId)}の間で、何を優先し何を手放すかの取引が浮かんだ。`,
+    significance: "論点の対立軸が見え、その後の調整の出発点になった。",
+  });
+  // Pairs where the second speaker answers the first.
+  const pairs: [Utterance, Utterance][] = [];
+  for (let i = 1; i < spoken.length; i++) {
     const a = spoken[i - 1];
     const b = spoken[i];
-    const id = `kx_${b.id}`;
-    if (keyExchanges.some((k) => k.id === id)) continue;
-    const bad = (s?: Stance) => s === "oppose" || s === "concern";
-    if (bad(b.stance) !== bad(a.stance) && b.addressedTo?.includes(a.speakerId)) {
-      keyExchanges.push({
-        id,
-        title: `${nameOf(state, a.speakerId)}と${nameOf(state, b.speakerId)}のやりとり`,
-        kind: kinds[keyExchanges.length % kinds.length],
-        utteranceIds: [a.id, b.id],
-        participantIds: [a.speakerId, b.speakerId],
-        summary: `${nameOf(state, b.speakerId)}が${nameOf(state, a.speakerId)}の発言に対し、立場の違いを明らかにした。`,
-        significance: "論点の対立軸が見え、その後の調整の出発点になった。",
-      });
-    }
+    if (a.speakerId !== b.speakerId && (b.addressedTo?.includes(a.speakerId) || bad(a.stance) !== bad(b.stance))) pairs.push([a, b]);
+  }
+  const want: KeyExchange["kind"][] = ["conflict", "concession", "tradeoff"];
+  const have = (id: string) => keyExchanges.some((k) => k.id === id);
+  for (const kind of want) {
+    if (keyExchanges.length >= 3) break;
+    if (keyExchanges.some((k) => k.kind === kind)) continue;
+    const hit =
+      kind === "conflict"
+        ? pairs.find(([a, b]) => !bad(a.stance) && bad(b.stance) && !have(`kx_${b.id}`))
+        : kind === "concession"
+          ? pairs.find(([a, b]) => bad(a.stance) && !bad(b.stance) && !have(`kx_${b.id}`))
+          : pairs.find(([, b]) => !have(`kx_${b.id}`));
+    if (hit) keyExchanges.push(mk(hit[0], hit[1], kind));
+  }
+  // Still short of 3: fill with the first unused pairs.
+  for (const [a, b] of pairs) {
+    if (keyExchanges.length >= 3) break;
+    if (!have(`kx_${b.id}`)) keyExchanges.push(mk(a, b, want[keyExchanges.length % want.length]));
   }
   return { summary: summary || prev.summary, agendaItems, issues, proposals, keyExchanges, coveredThroughTurn: newTurn };
 }
@@ -286,10 +313,13 @@ export function mockSatisfaction(state: MeetingState, p: Participant, tallies: P
   const score = Math.max(8, Math.min(96, Math.round(avg * 18 + 6 + jitter)));
   const consent = (score >= 80 ? 5 : score >= 62 ? 4 : score >= 45 ? 3 : score >= 28 ? 2 : 1) as 1 | 2 | 3 | 4 | 5;
   const to: Stance = consent >= 5 ? "strong_support" : consent === 4 ? "support" : consent === 3 ? "neutral" : consent === 2 ? "concern" : "oppose";
-  const role = roleOf(p);
+  const role = roleOf(state, p);
   const agreed = tallies.filter((t) => t.status === "agreed" || t.status === "conditionally_agreed").length;
+  const votes: Record<string, Stance> = {};
+  for (const pr of state.minutes.proposals) votes[pr.id] = pr.support[p.id] ?? init;
   return {
     participantId: p.id,
+    votes,
     score,
     consent,
     agreedPoints: [agreed ? `合意に至った${agreed}件の方向性は受け入れられる` : "議論の場が持てたこと", `${role?.interests[0] ?? "自分の関心"}が議題に載ったこと`],
@@ -328,6 +358,7 @@ export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], 
   const decisions = proposals.map((pr) => ({
     ...pr,
     status: byId.get(pr.id)?.status ?? "deferred",
+    support: byId.get(pr.id)?.stances ?? pr.support,
     conditions: pr.status === "conditionally_agreed" || byId.get(pr.id)?.status === "conditionally_agreed" ? ["実施後1年を目安に見直す", "負担が集中する立場への支援を併せて検討する"] : pr.conditions,
   }));
   const date = new Date(state.config.createdAt).toLocaleDateString("ja-JP");
@@ -338,8 +369,8 @@ export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], 
     landingZone: `各立場が最優先の利害を守りつつ、段階的な導入と定期的な見直しを条件に折り合う。負担が集中しやすい立場には支援を手当てし、推進側は導入のペースを緩めることで歩み寄った。`,
     stakeholderClaims: parts.map((p) => ({
       participantId: p.id,
-      claim: `${roleOf(p)?.interests[0] ?? "自分の暮らし"}を守りたい。`,
-      coreInterest: roleOf(p)?.concerns[0] ? `${roleOf(p)?.concerns[0]}を避けること` : "安心して暮らせること",
+      claim: `${roleOf(state, p)?.interests[0] ?? "自分の暮らし"}を守りたい。`,
+      coreInterest: roleOf(state, p)?.concerns[0] ? `${roleOf(state, p)?.concerns[0]}を避けること` : "安心して暮らせること",
     })),
     keyExchanges: state.minutes.keyExchanges,
     satisfaction: reports,
@@ -348,7 +379,7 @@ export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], 
     minutesMarkdown: [
       `# ${state.config.topic} ${type.name} 議事録`,
       `- 日時：${date}`,
-      `- 出席者：${parts.map((p) => `${p.name}（${roleTitleOf(p)}）`).join("、")}`,
+      `- 出席者：${parts.map((p) => `${p.name}（${roleTitleOf(p, resolverOf(state))}）`).join("、")}`,
       `- 議題：${state.config.topic}`,
       `## 議事概要`,
       state.minutes.summary || "（概要なし）",

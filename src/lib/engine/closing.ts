@@ -5,6 +5,7 @@ import type {
   Participant,
   Proposal,
   SatisfactionReport,
+  Stance,
   UsageTotals,
 } from "@/lib/types";
 import { callStructured, isMockMode } from "./client";
@@ -12,7 +13,7 @@ import { effortFor } from "./models";
 import { mockOutcome, mockSatisfaction } from "./mock";
 import { CLOSING_SYSTEM, closingUser, satisfactionSystem, satisfactionUser } from "./prompts";
 import { closingSchema, satisfactionSchema } from "./schemas";
-import type { ProposalTally } from "./tally";
+import { tallyProposals, type ProposalTally } from "./tally";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -37,9 +38,25 @@ export async function runSatisfaction(
     const m = mockSatisfaction(state, p, tallies);
     return { ...m, comment: "（回答を控えた）", stanceShift: { ...m.stanceShift, reason: "回答が得られなかったため推定" } };
   }
+  const pids = new Set(state.minutes.proposals.map((x) => x.id));
+  const votes: Record<string, Stance> = {};
+  for (const v of r.votes) if (pids.has(v.proposalId)) votes[v.proposalId] = v.stance;
   const score = clamp(Math.round(r.score), 0, 100);
   const consent = clamp(Math.round(r.consent), 1, 5) as 1 | 2 | 3 | 4 | 5;
-  return { participantId: p.id, score, consent, agreedPoints: r.agreedPoints, disagreedPoints: r.disagreedPoints, remainingConcerns: r.remainingConcerns, hopes: r.hopes, comment: r.comment, stanceShift: r.stanceShift };
+  return { participantId: p.id, score, consent, agreedPoints: r.agreedPoints, disagreedPoints: r.disagreedPoints, remainingConcerns: r.remainingConcerns, hopes: r.hopes, comment: r.comment, stanceShift: { ...r.stanceShift, from: state.initialStances?.[p.id]?.stance ?? r.stanceShift.from }, votes };
+}
+
+export const DEGRADED_TITLE_SUFFIX = "（簡易版）";
+export const DEGRADED_NOTICE = "【最終とりまとめに失敗（簡易版）】AIによる最終とりまとめが得られなかったため、議事録と集計結果から機械的に作成した簡易版です。再実行すると改善する場合があります。";
+
+/** Marks a fallback outcome so it is never mistaken for the real write-up. */
+function degrade(o: MeetingOutcome): MeetingOutcome {
+  return {
+    ...o,
+    title: o.title + DEGRADED_TITLE_SUFFIX,
+    executiveSummary: `${DEGRADED_NOTICE}\n${o.executiveSummary}`,
+    unresolvedIssues: [DEGRADED_NOTICE, ...o.unresolvedIssues],
+  };
 }
 
 export async function runClosing(
@@ -47,8 +64,8 @@ export async function runClosing(
   reports: SatisfactionReport[],
   tallies: ProposalTally[],
   meter: UsageTotals,
-): Promise<MeetingOutcome> {
-  const fallback = () => mockOutcome(state, reports, tallies);
+): Promise<{ outcome: MeetingOutcome; degraded: boolean }> {
+  const fallback = () => ({ outcome: mockOutcome(state, reports, tallies), degraded: false });
   if (isMockMode()) return fallback();
   const tier = state.config.modelTier;
   const r = await callStructured(
@@ -60,29 +77,38 @@ export async function runClosing(
     effortFor("closing", tier),
     meter,
   );
-  if (!r) return fallback();
-  const ids = new Set(state.config.participants.map((p) => p.id));
+  if (!r) return { outcome: degrade(mockOutcome(state, reports, tallies)), degraded: true };
+  const ps = state.config.participants;
+  const ids = new Set(ps.map((p) => p.id));
   const uids = new Set(state.utterances.map((u) => u.id));
   const existing = new Map(state.minutes.proposals.map((p) => [p.id, p]));
   const tallyBy = new Map(tallies.map((t) => [t.proposalId, t]));
   const decisions: Proposal[] = r.decisions.map((d) => {
     const old = existing.get(d.id);
-    const t = tallyBy.get(d.id);
+    let t = tallyBy.get(d.id);
+    if (!t) {
+      // New (consolidated) item: still decided by code, from the support the model attributed.
+      const support: Record<string, Stance> = Object.fromEntries(d.support.filter((x) => ids.has(x.participantId)).map((x) => [x.participantId, x.stance]));
+      t = tallyProposals([{ ...d, proposedBy: d.proposedBy, support, history: [] }], ps, state.config.decisionRule, reports)[0];
+    }
     return {
       id: d.id,
       title: d.title,
       body: d.body,
       proposedBy: old?.proposedBy ?? (ids.has(d.proposedBy) ? d.proposedBy : state.config.facilitatorId),
       kind: d.kind,
-      status: t ? t.status : d.status, // code-evaluated status wins
-      support: old?.support ?? Object.fromEntries(d.support.filter((s) => ids.has(s.participantId)).map((s) => [s.participantId, s.stance])),
+      status: t.status, // code-evaluated status wins
+      support: t.stances, // the stances the tally actually used
       conditions: d.conditions.length ? d.conditions : undefined,
-      history: old?.history ?? d.history,
+      history: old?.history ?? [],
     };
   });
   // Make sure every tallied proposal appears.
   for (const old of state.minutes.proposals)
-    if (!decisions.some((d) => d.id === old.id)) decisions.push({ ...old, status: tallyBy.get(old.id)?.status ?? old.status });
+    if (!decisions.some((d) => d.id === old.id)) {
+      const t = tallyBy.get(old.id);
+      decisions.push({ ...old, status: t?.status ?? old.status, support: t?.stances ?? old.support });
+    }
   const claims = state.config.participants.map((p) => {
     const c = r.stakeholderClaims.find((x) => x.participantId === p.id);
     return { participantId: p.id, claim: c?.claim ?? "", coreInterest: c?.coreInterest ?? "" };
@@ -92,7 +118,7 @@ export async function runClosing(
     utteranceIds: k.utteranceIds.filter((u) => uids.has(u)),
     participantIds: k.participantIds.filter((p) => ids.has(p)),
   }));
-  return {
+  const outcome: MeetingOutcome = {
     title: r.title,
     executiveSummary: r.executiveSummary,
     decisions,
@@ -104,5 +130,6 @@ export async function runClosing(
     nextSteps: r.nextSteps,
     minutesMarkdown: r.minutesMarkdown,
   };
+  return { outcome, degraded: false };
 }
 

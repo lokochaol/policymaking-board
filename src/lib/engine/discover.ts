@@ -1,10 +1,10 @@
 import { z } from "zod";
 import type { ModelTier, RoleCategory, RoleTemplate, StakeholderGroup, StakeholderSuggestion, UsageTotals } from "@/lib/types";
-import { CATEGORY_LABELS, ROLES, getCustomRoles, getRole, registerCustomRoles } from "@/data/roles";
+import { CATEGORY_LABELS, ROLES } from "@/data/roles";
 import { getCountry } from "@/data/countries";
 import { isMockMode } from "./client";
 import { parseStructured, webResearch } from "./webSearch";
-import { emptyUsage } from "./util";
+import { emptyUsage, makeRoleResolver, type RoleResolver } from "./util";
 
 const O = "claude-opus-5-5";
 const S = "claude-sonnet-5-5";
@@ -50,8 +50,9 @@ const suggestionSchema = z.object({
   ),
 });
 
-function catalog(): { id: string; title: string; category: RoleCategory }[] {
-  return [...ROLES, ...getCustomRoles()].map((r) => ({ id: r.id, title: r.title, category: r.category }));
+/** Static catalog + this request's custom roles only (no global registry). */
+function catalog(customRoles: RoleTemplate[]): { id: string; title: string; category: RoleCategory }[] {
+  return [...ROLES, ...customRoles].map((r) => ({ id: r.id, title: r.title, category: r.category }));
 }
 
 const RESEARCH_SYSTEM = `あなたは政策・社会課題の「ステークホルダー分析」の専門家です。与えられた議題について、ウェブ検索で実態を調べながら、関係する立場を漏れなく洗い出します。
@@ -78,6 +79,7 @@ export function normalizeSuggestions(
   raw: z.infer<typeof suggestionSchema>["suggestions"],
   selected: Set<string>,
   countryCodes: string[],
+  getRole: RoleResolver,
 ): StakeholderSuggestion[] {
   const out: StakeholderSuggestion[] = [];
   const seen = new Set<string>();
@@ -109,10 +111,10 @@ export function normalizeSuggestions(
 }
 
 export async function runDiscover(input: DiscoverInput): Promise<DiscoverResult> {
-  registerCustomRoles(input.customRoles);
+  const getRole = makeRoleResolver(input.customRoles);
   const meter = emptyUsage();
   const selected = new Set(input.selectedRoleIds);
-  if (isMockMode()) return { suggestions: mockDiscover(input), usage: meter };
+  if (isMockMode()) return { suggestions: mockDiscover(input, getRole), usage: meter };
 
   const tier = input.modelTier;
   const researchModel = tier === "economy" ? S : O;
@@ -129,7 +131,7 @@ export async function runDiscover(input: DiscoverInput): Promise<DiscoverResult>
     maxTokens: 10000,
   });
 
-  const cat = catalog()
+  const cat = catalog(input.customRoles)
     .map((r) => `${r.id} | ${r.title} | ${CATEGORY_LABELS[r.category]}(${r.category})`)
     .join("\n");
   const user = [
@@ -152,12 +154,12 @@ export async function runDiscover(input: DiscoverInput): Promise<DiscoverResult>
     maxTokens: 12000,
   });
   if (!parsed) throw new Error("関係者の洗い出しに失敗しました。もう一度お試しください。");
-  return { suggestions: normalizeSuggestions(parsed.suggestions, selected, input.countryCodes), usage: meter };
+  return { suggestions: normalizeSuggestions(parsed.suggestions, selected, input.countryCodes, getRole), usage: meter };
 }
 
 // ---------- mock ----------
 
-function mockDiscover(input: DiscoverInput): StakeholderSuggestion[] {
+function mockDiscover(input: DiscoverInput, getRole: RoleResolver): StakeholderSuggestion[] {
   const t = input.topic.trim().slice(0, 20) || "この議題";
   const selected = new Set(input.selectedRoleIds);
   const existing: [string, StakeholderGroup, StakeholderSuggestion["importance"]][] = [

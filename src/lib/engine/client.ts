@@ -26,6 +26,17 @@ export function plainBlock(text: string): SystemBlock {
   return { type: "text", text };
 }
 
+/** The request parameters of a structured call (exported so scripts can inspect the caching layout without sending). */
+export function buildParams<T>(role: EngineRole, tier: ModelTier, system: SystemInput, user: string, schema: z.ZodType<T>, effort: Effort) {
+  return {
+    model: modelFor(role, tier),
+    max_tokens: MAX_TOKENS[role],
+    system,
+    messages: [{ role: "user" as const, content: user }],
+    output_config: { effort, format: zodOutputFormat(schema) },
+  };
+}
+
 /**
  * One structured-output call. Returns null on refusal, parse failure or API error so the
  * caller can fall back (and show that it did). Usage is accumulated into `meter` when given.
@@ -43,14 +54,8 @@ export async function callStructured<T>(
   effort: Effort,
   meter?: UsageTotals,
 ): Promise<T | null> {
-  const model = modelFor(role, tier);
-  const params = {
-    model,
-    max_tokens: MAX_TOKENS[role],
-    system,
-    messages: [{ role: "user" as const, content: user }],
-    output_config: { effort, format: zodOutputFormat(schema) },
-  };
+  const params = buildParams(role, tier, system, user, schema, effort);
+  const model = params.model;
   try {
     const msg =
       role === "closing" ? await getClient().messages.stream(params).finalMessage() : await getClient().messages.parse(params);

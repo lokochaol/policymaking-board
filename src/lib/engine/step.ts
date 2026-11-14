@@ -18,7 +18,7 @@ import { STANCES_SYSTEM, stancesUser } from "./prompts";
 import { runScribe } from "./scribe";
 import { stancesSchema } from "./schemas";
 import { runSpeaker } from "./speaker";
-import { facilitatorOf, isFacilitatorLed, phaseBudget, registerCustomRoles, speechCounts } from "./util";
+import { facilitatorOf, isFacilitatorLed, phaseBudget, speechCounts } from "./util";
 
 export interface StepResult {
   utterances: Utterance[];
@@ -47,7 +47,6 @@ async function genInitialStances(state: MeetingState, meter: UsageTotals): Promi
 }
 
 export async function runStep(input: MeetingState): Promise<StepResult> {
-  registerCustomRoles(input.config.customRoles);
   const meter: UsageTotals = { ...input.usage };
   const type = getMeetingType(input.config.meetingTypeId);
   const phases = type.phases;
@@ -97,8 +96,8 @@ export async function runStep(input: MeetingState): Promise<StepResult> {
       phaseId: phase.id,
       speakerId: fac.id,
       kind: "facilitation",
-      text: decision.facilitatorRemark.trim(),
-      innerThought: decision.innerThought || undefined,
+      text: decision.facilitatorRemark.trim().slice(0, 900),
+      innerThought: decision.innerThought ? decision.innerThought.slice(0, 1900) : undefined,
       addressedTo: [speaker.id],
       timestamp: now(),
     });
@@ -106,7 +105,7 @@ export async function runStep(input: MeetingState): Promise<StepResult> {
 
   // 3. Speaker.
   const interim: MeetingState = { ...state, utterances: [...state.utterances, ...out] };
-  const sp = await runSpeaker(interim, speaker, phase, decision.prompt, meter);
+  const sp = await runSpeaker(interim, speaker, phase, decision.prompt, meter, { ledByChair });
   const ids = new Set(ps.map((p) => p.id));
   const minutes: Minutes = { ...state.minutes, proposals: state.minutes.proposals.map((p) => ({ ...p, support: { ...p.support } })) };
   let proposalsChanged = false;
@@ -117,7 +116,7 @@ export async function runStep(input: MeetingState): Promise<StepResult> {
   let addressedTo: string[] = [];
   if (sp) {
     text = sp.text.trim();
-    innerThought = sp.innerThought;
+    innerThought = sp.innerThought.slice(0, 1900);
     stance = sp.stance;
     addressedTo = sp.addressedTo.filter((id) => ids.has(id) && id !== speaker.id);
     if (sp.newProposal) {

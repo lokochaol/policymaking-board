@@ -244,6 +244,13 @@ export function facilitatorUser(state: MeetingState, ctx: FacilitatorCtx): strin
   ].join("\n");
 }
 
+/** Proposal history is code-owned; keep it out of prompts. */
+function withoutHistory(p: Proposal): Omit<Proposal, "history"> {
+  const copy: Partial<Proposal> = { ...p };
+  delete copy.history;
+  return copy as Omit<Proposal, "history">;
+}
+
 // ---------- Scribe ----------
 
 export const SCRIBE_SYSTEM = `あなたは事務局の書記。発言しない。中立的で正確な議事録を作る。
@@ -264,7 +271,7 @@ export function scribeUser(state: MeetingState, prev: Minutes, fresh: Utterance[
     `## 参加者`,
     ppl,
     `## 前回の議事録（JSON）`,
-    JSON.stringify({ ...prev, coveredThroughTurn: undefined, proposals: prev.proposals.map(({ history: _h, ...rest }) => rest) }),
+    JSON.stringify({ ...prev, coveredThroughTurn: undefined, proposals: prev.proposals.map(withoutHistory) }),
     `## 新しい発言`,
     lines || "（なし）",
     `議事録を更新して出力する。`,
@@ -353,7 +360,7 @@ export function closingUser(
     `## 参加者`,
     ppl,
     `## 議事録`,
-    JSON.stringify({ ...state.minutes, proposals: state.minutes.proposals.map(({ history: _h, ...rest }) => rest) }),
+    JSON.stringify({ ...state.minutes, proposals: state.minutes.proposals.map(withoutHistory) }),
     `## 合意ルールの集計（コードで計算済み）`,
     tallies.map((t) => `- ${t.proposalId}: ${t.note}`).join("\n") || "（提案なし）",
     `## 参加者の自己申告`,

@@ -1,10 +1,10 @@
 import { z } from "zod";
 import type { Accessory, ModelTier, Outfit, RoleCategory, RoleTemplate, UsageTotals } from "@/lib/types";
-import { CATEGORY_LABELS, getRole } from "@/data/roles";
+import { CATEGORY_LABELS } from "@/data/roles";
 import { getCountry } from "@/data/countries";
 import { isMockMode } from "./client";
 import { parseStructured, webResearch } from "./webSearch";
-import { emptyUsage, hashString } from "./util";
+import { emptyUsage, hashString, staticRole } from "./util";
 
 const S = "claude-sonnet-5-5";
 const O = "claude-opus-5-5";
@@ -115,7 +115,7 @@ export async function runCreateRole(input: CreateRoleInput): Promise<CreateRoleR
 
 function mockRole(id: string, input: CreateRoleInput): RoleTemplate {
   const h = hashString(input.title);
-  const base = getRole("town_office_staff");
+  const base = staticRole("town_office_staff");
   return {
     id,
     category: input.category,

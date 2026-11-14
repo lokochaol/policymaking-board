@@ -1,20 +1,21 @@
 import { NextResponse } from "next/server";
-import type { MeetingState } from "@/lib/types";
 import { runClose } from "@/lib/engine/close";
+import { asState, stateBodySchema } from "@/lib/engine/inputs";
+import { readBody } from "@/lib/engine/http";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-function isState(s: unknown): s is MeetingState {
-  const x = s as MeetingState | undefined;
-  return !!x && typeof x === "object" && !!x.config && Array.isArray(x.config.participants) && x.config.participants.length > 0 && !!x.minutes && Array.isArray(x.utterances);
-}
-
+/**
+ * Close step 2: the final write-up. Uses state.closingReports when present (from /close/satisfaction),
+ * otherwise generates them first. Response: { outcome, usage, degraded }. `degraded: true` means the AI
+ * write-up failed and `outcome` is a clearly marked simplified version (title/summary carry the marker).
+ */
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { state?: unknown };
-    if (!isState(body?.state)) return NextResponse.json({ error: "invalid state" }, { status: 400 });
-    return NextResponse.json(await runClose(body.state));
+    const b = await readBody(req, stateBodySchema);
+    if ("res" in b) return b.res;
+    return NextResponse.json(await runClose(asState(b.data.state)));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "close failed" }, { status: 500 });
   }
