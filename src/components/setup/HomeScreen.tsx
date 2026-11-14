@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMeetingStore } from "@/store/meetingStore";
 import { getMeetingType } from "@/data/meetingTypes";
 import { Badge, Button, Card, DisclosureBadge } from "@/components/ui";
+import { StorageWarning } from "@/components/ui/StorageWarning";
 import { formatDate } from "@/components/ui/labels";
 import type { MeetingState, MeetingStatus } from "@/lib/types";
 
@@ -36,6 +37,8 @@ export function HomeScreen() {
   const list = Object.values(meetings).sort((a, b) => b.config.createdAt.localeCompare(a.config.createdAt));
 
   return (
+    <>
+    <StorageWarning />
     <main className="mx-auto w-full max-w-4xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
       <section className="text-center">
         <p className="text-xs tracking-[0.3em] text-gold-dark">STAKEHOLDER ROOM</p>
@@ -92,5 +95,6 @@ export function HomeScreen() {
         )}
       </section>
     </main>
+    </>
   );
 }

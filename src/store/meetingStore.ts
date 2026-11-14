@@ -11,6 +11,7 @@ import type {
   FacilitatorDecision,
   MeetingStatus,
   ResearchBrief,
+  SatisfactionReport,
   Stance,
 } from "@/lib/types";
 import { getMeetingType } from "@/data/meetingTypes";
@@ -61,6 +62,33 @@ interface CloseResponse {
   usage: UsageTotals;
 }
 
+interface SatisfactionResponse {
+  reports: SatisfactionReport[];
+  usage: UsageTotals;
+}
+
+/** True when the server flagged (or visibly marked) the outcome as the degraded fallback. */
+export function isDegradedOutcome(o?: MeetingOutcome): boolean {
+  if (!o) return false;
+  const flagged = o as MeetingOutcome & { degraded?: boolean; failed?: boolean; fallback?: boolean };
+  if (flagged.degraded || flagged.failed || flagged.fallback) return true;
+  return /簡易版/.test(`${o.title ?? ""}${o.executiveSummary ?? ""}`);
+}
+
+function addUsage(a: UsageTotals, b: UsageTotals): UsageTotals {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    estimatedCostUsd: a.estimatedCostUsd + b.estimatedCostUsd,
+  };
+}
+
+/** Cumulative usage never goes backwards: keep whichever side has spent more. */
+function maxUsage(a: UsageTotals, b?: UsageTotals): UsageTotals {
+  return b && b.estimatedCostUsd > a.estimatedCostUsd ? b : a;
+}
+
 export function emptyMinutes(): Minutes {
   return { summary: "", agendaItems: [], issues: [], proposals: [], keyExchanges: [], coveredThroughTurn: 0 };
 }
@@ -76,10 +104,16 @@ interface MeetingStore {
   shown: Record<string, number>;
   /** Ephemeral: request in flight. */
   busy: Record<string, "step" | "close" | undefined>;
+  /** Ephemeral: localStorage could not be written (quota / blocked). */
+  storageFull: boolean;
   speed: SpeedId;
 
   hydrate: () => void;
-  createMeeting: (config: MeetingConfig) => string;
+  createMeeting: (config: MeetingConfig, initialUsage?: UsageTotals) => string;
+  /** Re-run the final write-up (reuses the stored satisfaction reports). */
+  regenerateOutcome: (id: string) => void;
+  /** Delete the oldest finished meetings to free storage. Returns the number removed. */
+  pruneOld: (keep: number) => number;
   deleteMeeting: (id: string) => void;
   setSpeed: (s: SpeedId) => void;
   /** Called when the meeting page mounts: continues running/closing meetings. */
@@ -95,6 +129,25 @@ interface MeetingStore {
 
 const gens = new Map<string, number>();
 const failedAt = new Map<string, "step" | "close">();
+/** Paid requests currently in flight, shared across remounts (StrictMode, navigation): meetingId -> key -> promise. */
+const inflight = new Map<string, Map<string, Promise<unknown>>>();
+/** A close was requested while a step was in flight; apply the wrap-up directive when it lands. */
+const closeRequested = new Set<string>();
+
+function shared<T>(id: string, key: string, make: () => Promise<T>): Promise<T> {
+  let m = inflight.get(id);
+  if (!m) inflight.set(id, (m = new Map()));
+  const existing = m.get(key);
+  if (existing) return existing as Promise<T>;
+  const p = make().finally(() => {
+    const cur = inflight.get(id);
+    cur?.delete(key);
+    if (cur && cur.size === 0) inflight.delete(id);
+  });
+  m.set(key, p);
+  return p;
+}
+const isInflight = (id: string, key: string) => !!inflight.get(id)?.has(key);
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let subscribed = false;
 
@@ -114,11 +167,13 @@ function newId(): string {
 export { newId };
 
 function saveNow(meetings: Record<string, MeetingState>) {
+  let ok = true;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, meetings }));
   } catch {
-    /* quota or blocked storage: ignore */
+    ok = false;
   }
+  if (useMeetingStore.getState().storageFull === ok) useMeetingStore.setState({ storageFull: !ok });
 }
 
 function scheduleSave() {
@@ -160,40 +215,87 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
     }
   };
 
-  const doStep = async (id: string, alive: () => boolean): Promise<{ start: number; count: number } | null> => {
+  const doStep = (id: string, alive: () => boolean): Promise<{ start: number; count: number } | null> =>
+    shared(id, "step", async () => {
+      const m = get().meetings[id];
+      if (!m) return null;
+      const sentDirective = m.pendingDirective;
+      set((s) => ({ busy: { ...s.busy, [id]: "step" }, shown: { ...s.shown, [id]: m.utterances.length } }));
+      try {
+        const r = await fetch("/api/meeting/step", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ state: { ...m, status: "running", error: undefined } }),
+        });
+        if (!r.ok) throw new Error(await readError(r));
+        const data = (await r.json()) as StepResponse;
+        const now = get().meetings[id];
+        if (!now) return null;
+        // The paid result is applied even if the loop was superseded (detach, pause/resume),
+        // as long as the state it was computed from is still current. Otherwise only the spend is kept.
+        if (now.utterances.length !== m.utterances.length) {
+          patch(id, (cur) => ({ usage: maxUsage(cur.usage, data.usage) }));
+          return null;
+        }
+        const start = m.utterances.length;
+        const added = data.utterances ?? [];
+        patch(id, (cur) => ({
+          utterances: [...cur.utterances, ...added],
+          minutes: data.minutes ?? cur.minutes,
+          phaseIndex: data.phaseIndex,
+          phaseTurn: data.phaseTurn,
+          turn: data.turn,
+          status: data.status === "closing" ? "closing" : cur.status === "paused" ? "paused" : "running",
+          initialStances: data.initialStances ? { ...cur.initialStances, ...data.initialStances } : cur.initialStances,
+          usage: maxUsage(cur.usage, data.usage),
+          // Keep a directive that was queued while this step was in flight.
+          pendingDirective: cur.pendingDirective === sentDirective ? undefined : cur.pendingDirective,
+          error: undefined,
+        }));
+        if (closeRequested.has(id)) {
+          closeRequested.delete(id);
+          if (get().meetings[id]?.status !== "closing") applyClose(id);
+        }
+        if (!alive()) {
+          set((s) => ({ shown: { ...s.shown, [id]: get().meetings[id]?.utterances.length ?? 0 } }));
+          return null;
+        }
+        return { start, count: added.length };
+      } catch (e) {
+        if (alive()) setError(id, "step", e);
+        return null;
+      } finally {
+        set((s) => ({ busy: { ...s.busy, [id]: undefined } }));
+      }
+    });
+
+  /** Jump to the last round-robin phase (final stance check) and have the chair open the wrap-up. */
+  const applyClose = (id: string) => {
     const m = get().meetings[id];
-    if (!m) return null;
-    set((s) => ({ busy: { ...s.busy, [id]: "step" }, shown: { ...s.shown, [id]: m.utterances.length } }));
-    try {
-      const r = await fetch("/api/meeting/step", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ state: { ...m, status: "running", error: undefined } }),
-      });
-      if (!r.ok) throw new Error(await readError(r));
-      const data = (await r.json()) as StepResponse;
-      if (!alive()) return null;
-      const start = m.utterances.length;
-      const added = data.utterances ?? [];
-      patch(id, (cur) => ({
-        utterances: [...cur.utterances, ...added],
-        minutes: data.minutes ?? cur.minutes,
-        phaseIndex: data.phaseIndex,
-        phaseTurn: data.phaseTurn,
-        turn: data.turn,
-        status: data.status === "closing" ? "closing" : cur.status === "paused" ? "paused" : "running",
-        initialStances: data.initialStances ? { ...cur.initialStances, ...data.initialStances } : cur.initialStances,
-        usage: data.usage ?? cur.usage,
-        pendingDirective: undefined,
-        error: undefined,
-      }));
-      return { start, count: added.length };
-    } catch (e) {
-      if (alive()) setError(id, "step", e);
-      return null;
-    } finally {
-      set((s) => ({ busy: { ...s.busy, [id]: undefined } }));
-    }
+    if (!m) return;
+    const phases = getMeetingType(m.config.meetingTypeId)?.phases ?? [];
+    const last = Math.max(phases.length - 1, 0);
+    let target = -1;
+    phases.forEach((ph, i) => {
+      if (ph.roundRobin) target = i;
+    });
+    if (target < 0 || target < m.phaseIndex) target = last;
+    const idx = Math.max(m.phaseIndex, target);
+    const directive: FacilitatorDecision = {
+      nextSpeakerId: m.config.facilitatorId,
+      facilitatorRemark: "",
+      prompt: "時間が近づいてきました。ここまでの議論をまとめに入ってください。論点と合意点を整理し、各人に最終的な賛否を確認してください。",
+      advancePhase: false,
+      endMeeting: false,
+      innerThought: "",
+    };
+    patch(id, () => ({
+      status: "running",
+      phaseIndex: idx,
+      phaseTurn: idx === m.phaseIndex ? m.phaseTurn : 0,
+      pendingDirective: directive,
+      error: undefined,
+    }));
   };
 
   const play = async (id: string, alive: () => boolean, start: number, count: number) => {
@@ -206,27 +308,66 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
     if (alive()) set((s) => ({ shown: { ...s.shown, [id]: get().meetings[id]?.utterances.length ?? 0 } }));
   };
 
+  const postJson = async <T,>(url: string, body: unknown): Promise<T> => {
+    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await readError(r));
+    return (await r.json()) as T;
+  };
+
+  /** Step 1 of the close: satisfaction reports (stored in state.closingReports and persisted). Shared + idempotent. */
+  const runSatisfaction = (id: string) =>
+    shared(id, "satisfaction", async () => {
+      const m = get().meetings[id];
+      if (!m || m.closingReports) return;
+      const data = await postJson<SatisfactionResponse>("/api/meeting/close/satisfaction", { state: { ...m, error: undefined } });
+      patch(id, (cur) => ({ closingReports: data.reports, usage: maxUsage(cur.usage, data.usage) }));
+    });
+
+  /** Step 2: outcome, built from the stored closingReports. Shared + idempotent. */
+  const runOutcome = (id: string) =>
+    shared(id, "close", async () => {
+      const m = get().meetings[id];
+      if (!m) return;
+      const data = await postJson<CloseResponse>("/api/meeting/close", { state: { ...m, error: undefined } });
+      failedAt.delete(id);
+      patch(id, (cur) => ({ outcome: data.outcome, usage: maxUsage(cur.usage, data.usage), status: "finished", error: undefined }));
+    });
+
   const doClose = async (id: string, alive: () => boolean) => {
-    const m = get().meetings[id];
-    if (!m) return;
+    if (!get().meetings[id]) return;
     set((s) => ({ busy: { ...s.busy, [id]: "close" } }));
     try {
-      const r = await fetch("/api/meeting/close", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ state: { ...m, error: undefined } }),
-      });
-      if (!r.ok) throw new Error(await readError(r));
-      const data = (await r.json()) as CloseResponse;
-      if (!alive()) return;
-      failedAt.delete(id);
-      patch(id, (cur) => ({ outcome: data.outcome, usage: data.usage ?? cur.usage, status: "finished", error: undefined }));
+      if (!get().meetings[id]?.closingReports) await runSatisfaction(id);
+      await runOutcome(id);
     } catch (e) {
       if (alive()) setError(id, "close", e);
     } finally {
-      set((s) => ({ busy: { ...s.busy, [id]: undefined } }));
+      if (alive()) set((s) => ({ busy: { ...s.busy, [id]: undefined } }));
     }
   };
+
+  /** One research request per participant, shared across remounts; the result is applied whichever loop is alive. */
+  const runPrepare = (id: string, pid: string) =>
+    shared(id, `prepare:${pid}`, async () => {
+      patch(id, (cur) => ({ research: { ...cur.research, [pid]: skeletonBrief(pid, "researching") } }));
+      let brief: ResearchBrief;
+      let usage: UsageTotals | undefined;
+      try {
+        const cur = get().meetings[id];
+        if (!cur) return;
+        const data = await postJson<PrepareResponse>("/api/meeting/prepare", { state: { ...cur, status: "preparing", error: undefined }, participantId: pid });
+        brief = { ...data.brief, participantId: pid };
+        usage = data.usage;
+      } catch {
+        brief = { ...skeletonBrief(pid, "failed"), summary: "事前調査に失敗しました。" };
+      }
+      patch(id, (cur) => {
+        // Only skip when the participant's brief was already settled by someone else.
+        const st = cur.research?.[pid]?.status;
+        if (st === "done" || st === "failed") return {};
+        return { research: { ...cur.research, [pid]: brief }, usage: usage ? addUsage(cur.usage, usage) : cur.usage };
+      });
+    });
 
   const doPrepare = async (id: string, alive: () => boolean) => {
     const m0 = get().meetings[id];
@@ -243,41 +384,14 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
       while (alive()) {
         const pid = todo[next++];
         if (!pid) return;
-        patch(id, (cur) => ({ research: { ...cur.research, [pid]: skeletonBrief(pid, "researching") } }));
-        let brief: ResearchBrief;
-        let usage: UsageTotals | undefined;
-        try {
-          const cur = get().meetings[id];
-          if (!cur) return;
-          const r = await fetch("/api/meeting/prepare", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ state: { ...cur, status: "preparing", error: undefined }, participantId: pid }),
-          });
-          if (!r.ok) throw new Error(await readError(r));
-          const data = (await r.json()) as PrepareResponse;
-          brief = { ...data.brief, participantId: pid };
-          usage = data.usage;
-        } catch {
-          brief = { ...skeletonBrief(pid, "failed"), summary: "事前調査に失敗しました。" };
-        }
-        if (!alive()) return;
-        patch(id, (cur) => ({
-          research: { ...cur.research, [pid]: brief },
-          usage: usage
-            ? {
-                inputTokens: cur.usage.inputTokens + usage.inputTokens,
-                outputTokens: cur.usage.outputTokens + usage.outputTokens,
-                cacheReadTokens: cur.usage.cacheReadTokens + usage.cacheReadTokens,
-                estimatedCostUsd: cur.usage.estimatedCostUsd + usage.estimatedCostUsd,
-              }
-            : cur.usage,
-        }));
+        await runPrepare(id, pid);
       }
     };
     await Promise.all(Array.from({ length: Math.min(PREPARE_CONCURRENCY, todo.length) }, worker));
-    set((s) => ({ busy: { ...s.busy, [id]: undefined } }));
-    if (alive()) patch(id, () => ({ status: "running" }));
+    if (alive()) {
+      set((s) => ({ busy: { ...s.busy, [id]: undefined } }));
+      patch(id, () => ({ status: "running" }));
+    }
   };
 
   const loop = async (id: string, gen: number, once: boolean) => {
@@ -301,9 +415,21 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
     }
   };
 
+  /**
+   * Start (or supersede) the loop. If a paid /step is in flight its result is still applied;
+   * the new loop waits for it instead of re-sending the same state.
+   */
   const startLoop = (id: string, once = false) => {
     const gen = (gens.get(id) ?? 0) + 1;
     gens.set(id, gen);
+    const pending = inflight.get(id)?.get("step");
+    if (pending) {
+      void pending.then(
+        () => gens.get(id) === gen && void loop(id, gen, once),
+        () => gens.get(id) === gen && void loop(id, gen, once),
+      );
+      return;
+    }
     void loop(id, gen, once);
   };
 
@@ -312,6 +438,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
     meetings: {},
     shown: {},
     busy: {},
+    storageFull: false,
     speed: "normal",
 
     hydrate: () => {
@@ -343,7 +470,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
       }
     },
 
-    createMeeting: (config) => {
+    createMeeting: (config, initialUsage) => {
       registerCustomRoles(config.customRoles);
       const state: MeetingState = {
         config,
@@ -355,7 +482,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
         utterances: [],
         minutes: emptyMinutes(),
         initialStances: {},
-        usage: emptyUsage(),
+        usage: initialUsage ? { ...initialUsage } : emptyUsage(),
       };
       set((s) => ({ meetings: { ...s.meetings, [config.id]: state }, shown: { ...s.shown, [config.id]: 0 } }));
       saveNow(get().meetings);
@@ -369,6 +496,29 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
         delete rest[id];
         return { meetings: rest };
       });
+      saveNow(get().meetings);
+    },
+
+    pruneOld: (keep) => {
+      const finished = Object.values(get().meetings)
+        .filter((m) => m.status === "finished")
+        .sort((a, b) => b.config.createdAt.localeCompare(a.config.createdAt));
+      const drop = finished.slice(Math.max(keep, 0));
+      if (drop.length === 0) return 0;
+      set((s) => {
+        const rest = { ...s.meetings };
+        for (const m of drop) delete rest[m.config.id];
+        return { meetings: rest };
+      });
+      saveNow(get().meetings);
+      return drop.length;
+    },
+
+    regenerateOutcome: (id) => {
+      const m = get().meetings[id];
+      if (!m || m.status !== "finished") return;
+      failedAt.delete(id);
+      patch(id, () => ({ outcome: undefined, status: "closing", error: undefined }));
     },
 
     setSpeed: (speed) => set({ speed }),
@@ -408,23 +558,18 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
     requestClose: (id) => {
       const m = get().meetings[id];
       if (!m || m.status === "finished" || m.status === "closing" || m.status === "preparing") return;
-      const type = getMeetingType(m.config.meetingTypeId);
-      const last = Math.max((type?.phases.length ?? 1) - 1, 0);
-      const directive: FacilitatorDecision = {
-        nextSpeakerId: m.config.facilitatorId,
-        facilitatorRemark: "",
-        prompt: "時間が近づいてきました。ここまでの議論をまとめに入ってください。論点と合意点を整理し、各人に最終的な賛否を確認してください。",
-        advancePhase: false,
-        endMeeting: false,
-        innerThought: "",
-      };
-      patch(id, () => ({
-        status: "running",
-        phaseIndex: Math.max(m.phaseIndex, last),
-        phaseTurn: m.phaseIndex >= last ? m.phaseTurn : 0,
-        pendingDirective: directive,
-        error: undefined,
-      }));
+      // A failed close must retry the close, not restart the discussion.
+      if (m.status === "error" && failedAt.get(id) === "close") {
+        get().retry(id);
+        return;
+      }
+      if (isInflight(id, "step")) {
+        // The in-flight step's result will be applied first; then the wrap-up directive.
+        closeRequested.add(id);
+        patch(id, () => ({ status: "running", error: undefined }));
+      } else {
+        applyClose(id);
+      }
       startLoop(id);
     },
 

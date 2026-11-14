@@ -54,7 +54,7 @@ const proposalSchema = z.object({
   status: proposalStatusEnum,
   support: z.array(z.object({ participantId: z.string(), stance: stanceEnum })),
   conditions: z.array(z.string()),
-  history: z.array(z.object({ turn: z.number(), note: z.string() })),
+  // `history` is deliberately absent: the code keeps it (saves scribe/closing output tokens).
 });
 export type ProposalRaw = z.infer<typeof proposalSchema>;
 
@@ -96,6 +96,8 @@ export const satisfactionSchema = z.object({
   hopes: z.array(z.string()),
   comment: z.string(),
   stanceShift: z.object({ from: stanceEnum, to: stanceEnum, reason: z.string() }),
+  /** Final stance on every proposal (the tally uses these). */
+  votes: z.array(z.object({ proposalId: z.string(), stance: stanceEnum })),
 });
 export type SatisfactionRaw = z.infer<typeof satisfactionSchema>;
 

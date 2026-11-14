@@ -1,12 +1,36 @@
 import type { MeetingState, Participant, PhaseDef, RoleTemplate, Stance, UsageTotals } from "@/lib/types";
 import { getCountry } from "@/data/countries";
-import { getRole, registerCustomRoles } from "@/data/roles";
+import { ROLES } from "@/data/roles";
 
-export { registerCustomRoles };
+/** Resolves a role id to its template. Built per request from the static catalog + that request's custom roles. */
+export type RoleResolver = (id: string) => RoleTemplate | undefined;
 
-/** Resolve a role (static catalog, then custom roles registered from config.customRoles). */
-export function roleById(id: string): RoleTemplate | undefined {
-  return getRole(id);
+const STATIC_ROLES = new Map<string, RoleTemplate>(ROLES.map((r) => [r.id, r]));
+
+export function staticRole(id: string): RoleTemplate | undefined {
+  return STATIC_ROLES.get(id);
+}
+
+/** No global registry: the resolver closes over exactly the custom roles it is given. */
+export function makeRoleResolver(customRoles?: RoleTemplate[]): RoleResolver {
+  const custom = new Map<string, RoleTemplate>((customRoles ?? []).map((r) => [r.id, r]));
+  return (id) => STATIC_ROLES.get(id) ?? custom.get(id);
+}
+
+const resolverCache = new WeakMap<object, RoleResolver>();
+/** Resolver for a meeting state (cached per config object). */
+export function resolverOf(state: MeetingState): RoleResolver {
+  const key = state.config as object;
+  let r = resolverCache.get(key);
+  if (!r) {
+    r = makeRoleResolver(state.config.customRoles);
+    resolverCache.set(key, r);
+  }
+  return r;
+}
+
+export function roleOfParticipant(state: MeetingState, p: Participant): RoleTemplate | undefined {
+  return resolverOf(state)(p.roleId);
 }
 
 export function hashString(s: string): number {
@@ -30,16 +54,16 @@ export function nameOf(state: MeetingState, id: string): string {
   return state.config.participants.find((p) => p.id === id)?.name ?? id;
 }
 
-export function roleTitleOf(p: Participant): string {
-  return roleById(p.roleId)?.title ?? p.roleId;
+export function roleTitleOf(p: Participant, rr: RoleResolver): string {
+  return rr(p.roleId)?.title ?? p.roleId;
 }
 
 export function countryNameOf(p: Participant): string {
   return getCountry(p.countryCode)?.name ?? p.countryCode;
 }
 
-export function describeParticipant(p: Participant, facilitatorId?: string): string {
-  return `${p.name}（${countryNameOf(p)}・${roleTitleOf(p)}）${p.id === facilitatorId ? "【進行役】" : ""}`;
+export function describeParticipant(p: Participant, rr: RoleResolver, facilitatorId?: string): string {
+  return `${p.name}（${countryNameOf(p)}・${roleTitleOf(p, rr)}）${p.id === facilitatorId ? "【進行役】" : ""}`;
 }
 
 export function facilitatorOf(state: MeetingState): Participant {
@@ -70,9 +94,10 @@ export function stanceToConsent(s: Stance): 1 | 2 | 3 | 4 | 5 {
   return s === "strong_support" ? 5 : s === "support" ? 4 : s === "neutral" ? 3 : s === "concern" ? 2 : 1;
 }
 
+/** Number of kind:"speech" utterances per participant. */
 export function speechCounts(state: MeetingState): Record<string, number> {
   const c: Record<string, number> = {};
   for (const p of state.config.participants) c[p.id] = 0;
-  for (const u of state.utterances) if (u.kind === "speech" || u.kind === "facilitation") c[u.speakerId] = (c[u.speakerId] ?? 0) + (u.kind === "speech" ? 1 : 0);
+  for (const u of state.utterances) if (u.kind === "speech") c[u.speakerId] = (c[u.speakerId] ?? 0) + 1;
   return c;
 }

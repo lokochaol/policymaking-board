@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { DecisionRule, DisclosureLevel, MeetingConfig, MeetingTypeId, ModelTier, Participant, RoleTemplate } from "@/lib/types";
+import type { UsageTotals, DecisionRule, DisclosureLevel, MeetingConfig, MeetingTypeId, ModelTier, Participant, RoleTemplate } from "@/lib/types";
 import { loadCustomRoles } from "@/lib/customRoles";
 import StakeholderDiscovery from "./StakeholderDiscovery";
 import { MEETING_TYPES, getMeetingType } from "@/data/meetingTypes";
 import { COUNTRIES } from "@/data/countries";
 import { createParticipant, rerollParticipant } from "@/lib/participants";
-import { newId, useMeetingStore } from "@/store/meetingStore";
+import { emptyUsage, newId, useMeetingStore } from "@/store/meetingStore";
 import { Button } from "@/components/ui";
 import { RolePicker } from "./RolePicker";
 import { RoomPreview } from "./RoomPreview";
@@ -43,6 +43,17 @@ export function SetupScreen() {
   const [modelTier, setModelTier] = useState<ModelTier>("standard");
 
   const [customRoles, setCustomRoles] = useState<RoleTemplate[]>([]);
+  /** Spend from discovery / create-role calls, carried into the meeting's total. */
+  const spend = useRef<UsageTotals>(emptyUsage());
+  const onSpend = useCallback((u: UsageTotals) => {
+    const t = spend.current;
+    spend.current = {
+      inputTokens: t.inputTokens + (u.inputTokens ?? 0),
+      outputTokens: t.outputTokens + (u.outputTokens ?? 0),
+      cacheReadTokens: t.cacheReadTokens + (u.cacheReadTokens ?? 0),
+      estimatedCostUsd: t.estimatedCostUsd + (u.estimatedCostUsd ?? 0),
+    };
+  }, []);
 
   useEffect(() => {
     useMeetingStore.getState().hydrate();
@@ -118,7 +129,7 @@ export function SetupScreen() {
       lengthFactor,
       customRoles: customRoles.filter((r) => participants.some((p) => p.roleId === r.id)),
     };
-    const id = createMeeting(config);
+    const id = createMeeting(config, spend.current);
     router.push(`/meeting/${id}`);
   };
 
@@ -165,6 +176,8 @@ export function SetupScreen() {
           customRoles={customRoles}
           modelTier={modelTier}
           participantCount={participants.length}
+          maxParticipants={type.maxParticipants}
+          onSpend={onSpend}
           onRoleCreated={(role) => setCustomRoles((prev) => (prev.some((r) => r.id === role.id) ? prev : [...prev, role]))}
           onAddRole={(roleId, cc) => addParticipant(roleId, cc)}
         />

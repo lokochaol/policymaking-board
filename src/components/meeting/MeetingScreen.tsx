@@ -10,6 +10,7 @@ import Room from "@/components/room/Room";
 import { SPEEDS, useMeetingStore, type SpeedId } from "@/store/meetingStore";
 import { Badge, Button, Card, PersonAvatar } from "@/components/ui";
 import { STANCE_COLOR } from "@/components/ui/labels";
+import { StorageWarning } from "@/components/ui/StorageWarning";
 import { TopBar } from "./TopBar";
 import { SidePanel, type PanelTab } from "./SidePanel";
 import { useTypewriter } from "./useTypewriter";
@@ -113,6 +114,7 @@ export function MeetingScreen({ id }: { id: string }) {
   return (
     <div className="flex min-h-screen flex-col pb-44 sm:pb-24">
       <TopBar m={m} />
+      <StorageWarning />
 
       {preparing && (
         <div className="border-b border-gold/30 bg-gold-soft/70 px-4 py-3 text-center text-sm" role="status">

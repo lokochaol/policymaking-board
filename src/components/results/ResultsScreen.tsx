@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { MeetingState, Participant, Proposal, ProposalStatus, SatisfactionReport, Stance } from "@/lib/types";
 import { getMeetingType } from "@/data/meetingTypes";
 import { getRole } from "@/data/roles";
 import { COUNTRIES } from "@/data/countries";
-import { useMeetingStore } from "@/store/meetingStore";
+import { isDegradedOutcome, useMeetingStore } from "@/store/meetingStore";
 import { Badge, Button, Card, DisclosureBadge, EmptyState, PersonAvatar, StanceDot } from "@/components/ui";
 import { Markdown } from "@/components/ui/Markdown";
 import { ResearchBriefCard } from "@/components/ui/ResearchBriefCard";
@@ -151,6 +152,8 @@ function Dashboard({ m, pmap }: { m: MeetingState; pmap: PMap }) {
   const avg = sat.length ? Math.round(sat.reduce((s, r) => s + r.score, 0) / sat.length) : 0;
   const uttById = new Map(m.utterances.map((u) => [u.id, u]));
   const researched = m.config.participants.filter((p) => m.research?.[p.id]);
+  const router = useRouter();
+  const degraded = isDegradedOutcome(o);
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-10 px-4 pb-24 pt-5 sm:px-6">
@@ -162,6 +165,24 @@ function Dashboard({ m, pmap }: { m: MeetingState; pmap: PMap }) {
           会議の様子を見返す
         </Link>
       </nav>
+
+      {degraded && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+          <span>⚠ 最終とりまとめの生成に失敗したため、簡易版の結果を表示しています。内容は機械的にまとめたもので、精度が低い場合があります。</span>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              if (confirm("もう一度最終とりまとめを作成します（納得度の回答は再利用されます）。よろしいですか？")) {
+                useMeetingStore.getState().regenerateOutcome(m.config.id);
+                router.push(`/meeting/${m.config.id}`);
+              }
+            }}
+          >
+            もう一度まとめる
+          </Button>
+        </div>
+      )}
 
       <header className="rounded-3xl border border-line bg-gradient-to-br from-card to-gold-soft/50 p-5 shadow-lift sm:p-8">
         <p className="text-xs tracking-widest text-gold-dark">{type.name}</p>

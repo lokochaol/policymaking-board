@@ -16,7 +16,6 @@ const GROUPS: { id: StakeholderGroup; label: string }[] = [
   { id: "overlooked", label: "見落とされがちな声" },
 ];
 const IMPORTANCE = { high: { label: "重要度 高", tone: "gold" }, medium: { label: "重要度 中", tone: "blue" }, low: { label: "重要度 低", tone: "gray" } } as const;
-const MAX_PARTICIPANTS = 16;
 
 export interface StakeholderDiscoveryProps {
   topic: string;
@@ -28,10 +27,14 @@ export interface StakeholderDiscoveryProps {
   onAddRole: (roleId: string, countryCode: string) => void;
   onRoleCreated: (role: RoleTemplate) => void;
   participantCount: number;
+  /** The selected meeting type's seat limit. */
+  maxParticipants: number;
+  /** Reports paid spend (discovery / role creation) so it can be carried into the meeting total. */
+  onSpend?: (u: UsageTotals) => void;
 }
 
 export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
-  const { topic, background, countryCode, selectedRoleIds, customRoles, modelTier, onAddRole, onRoleCreated, participantCount } = props;
+  const { topic, background, countryCode, selectedRoleIds, customRoles, modelTier, onAddRole, onRoleCreated, participantCount, maxParticipants, onSpend } = props;
   const [suggestions, setSuggestions] = useState<StakeholderSuggestion[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +45,11 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
   const addedCount = useRef(0);
 
   const selectedSet = useMemo(() => new Set(selectedRoleIds), [selectedRoleIds]);
-  const addCost = (u?: UsageTotals) => u && setCost((c) => c + (u.estimatedCostUsd ?? 0));
+  const addCost = (u?: UsageTotals) => {
+    if (!u) return;
+    setCost((c) => c + (u.estimatedCostUsd ?? 0));
+    onSpend?.(u);
+  };
 
   async function discover() {
     setLoading(true);
@@ -107,11 +114,15 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
   const isDone = (s: StakeholderSuggestion) => added.has(s.id) || (!!s.roleId && selectedSet.has(s.roleId));
   const pendingHigh = (suggestions ?? []).filter((s) => s.importance === "high" && !isDone(s) && !creating.has(s.id));
   const pendingTotal = (suggestions ?? []).filter((s) => !isDone(s)).length;
-  const overLimit = participantCount + pendingHigh.length > MAX_PARTICIPANTS;
+  const slots = Math.max(0, maxParticipants - participantCount);
+  const overLimit = pendingHigh.length > slots;
 
   async function addAllHigh() {
+    // Slots are computed once up front so we never pay to create roles that cannot be seated.
+    const batch = pendingHigh.slice(0, slots);
+    if (batch.length === 0) return;
     setBulk(true);
-    for (const s of pendingHigh) await addOne(s);
+    for (const s of batch) await addOne(s);
     setBulk(false);
   }
 
@@ -138,8 +149,8 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
       {suggestions && !loading && (
         <div className="mt-4 space-y-5">
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="primary" size="sm" onClick={addAllHigh} disabled={bulk || pendingHigh.length === 0}>
-              {bulk ? "追加しています…" : `重要度・高をすべて追加（${pendingHigh.length}）`}
+            <Button variant="primary" size="sm" onClick={addAllHigh} disabled={bulk || slots === 0 || pendingHigh.length === 0}>
+              {bulk ? "追加しています…" : slots === 0 ? "席が埋まっています" : `重要度・高をすべて追加（${Math.min(pendingHigh.length, slots)}）`}
             </Button>
             <span className="text-xs text-ink-soft">
               提案 {suggestions.length}件 / 未追加 {pendingTotal}件 / 現在の参加者 {participantCount}人
@@ -147,7 +158,7 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
           </div>
           {overLimit && (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              すべて追加すると参加者が{MAX_PARTICIPANTS}人を超えます。人数が多いと会議が長く、費用も増えます。
+              席が{maxParticipants}人までのため、空き{slots}席分だけ追加します。人数が多いと会議が長く、費用も増えます。
             </p>
           )}
           {GROUPS.map((g) => {
@@ -178,7 +189,7 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
                           {done ? (
                             <span className="text-sm font-medium text-emerald-700">✓ 追加済み</span>
                           ) : (
-                            <Button size="sm" variant={s.roleId ? "secondary" : "gold"} disabled={busy || bulk} onClick={() => addOne(s)}>
+                            <Button size="sm" variant={s.roleId ? "secondary" : "gold"} disabled={busy || bulk || slots === 0} onClick={() => addOne(s)}>
                               {busy ? (
                                 <>
                                   <Spinner small /> 作成中…

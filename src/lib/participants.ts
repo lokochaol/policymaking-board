@@ -1,6 +1,6 @@
 import type { AvatarSpec, Outfit, Participant, RoleTemplate } from "@/lib/types";
 import { getCountry } from "@/data/countries";
-import { roleById } from "@/lib/engine/util";
+import { getRole } from "@/data/roles";
 
 // ---------- deterministic PRNG ----------
 function xfnv1a(str: string): number {
@@ -119,14 +119,14 @@ export function createParticipant(
   /** Pass for custom roles that are not in the static catalog. */
   role?: RoleTemplate,
 ): Participant {
-  const t = role ?? roleById(roleId);
+  const t = role ?? getRole(roleId);
   if (!t) throw new Error(`unknown role: ${roleId}`);
   return generate(t, countryCode, seed, seatIndex);
 }
 
 /** New name/appearance/personality for the same seat, role and country (id is kept). */
 export function rerollParticipant(p: Participant, newSeed: string, role?: RoleTemplate): Participant {
-  const t = role ?? roleById(p.roleId);
+  const t = role ?? getRole(p.roleId);
   if (!t) throw new Error(`unknown role: ${p.roleId}`);
   return { ...generate(t, p.countryCode, newSeed, p.seatIndex, p.id), isFacilitator: p.isFacilitator };
 }

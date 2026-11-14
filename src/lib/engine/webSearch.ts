@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import type { UsageTotals } from "@/lib/types";
-import { getClient } from "./client";
+import { getClient, type SystemInput } from "./client";
 import { addUsage, type Effort } from "./models";
 
 const MAX_CONTINUATIONS = 3;
@@ -16,25 +16,27 @@ export interface WebNotes {
 /** Free-form web-search research call (pause_turn continuation). Never throws; returns what it got. */
 export async function webResearch(opts: {
   model: string;
-  system: string;
+  system: SystemInput;
   user: string;
+  /** Total search budget across continuations. */
   maxUses: number;
   effort: Effort;
   meter: UsageTotals;
   maxTokens?: number;
 }): Promise<WebNotes> {
   const isHaiku = opts.model.includes("haiku");
-  const tool = {
-    type: isHaiku ? "web_search_20250305" : "web_search_20260209",
-    name: "web_search",
-    max_uses: opts.maxUses,
-  } as unknown as Anthropic.Messages.ToolUnion;
   const queries: string[] = [];
   const sources: { title: string; url: string }[] = [];
   const notes: string[] = [];
   try {
     const messages: Anthropic.Messages.MessageParam[] = [{ role: "user", content: opts.user }];
     for (let i = 0; i <= MAX_CONTINUATIONS; i++) {
+      const remaining = opts.maxUses - queries.length;
+      if (i > 0 && remaining <= 0) break;
+      const max_uses = Math.max(1, remaining);
+      const tool: Anthropic.Messages.WebSearchTool20250305 | Anthropic.Messages.WebSearchTool20260209 = isHaiku
+        ? { type: "web_search_20250305", name: "web_search", max_uses }
+        : { type: "web_search_20260209", name: "web_search", max_uses };
       const msg = await getClient().messages.create({
         model: opts.model,
         max_tokens: opts.maxTokens ?? 8000,
@@ -42,6 +44,8 @@ export async function webResearch(opts: {
         messages,
         tools: [tool],
         output_config: { effort: opts.effort },
+        // The conversation grows on each continuation, so cache its prefix (not worthwhile on the first call).
+        ...(i > 0 ? { cache_control: { type: "ephemeral" as const } } : {}),
       });
       addUsage(opts.meter, opts.model, msg.usage);
       for (const b of msg.content) {

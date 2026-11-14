@@ -178,8 +178,9 @@ export function ProposalCard({ p, pmap }: { p: Proposal; pmap: PMap }) {
   );
 }
 
-function ExchangeList({ m, pmap, onJump }: { m: MeetingState; pmap: PMap; onJump: (uttId: string) => void }) {
-  const list = m.minutes.keyExchanges;
+function ExchangeList({ m, pmap, seen, onJump }: { m: MeetingState; pmap: PMap; seen: Set<string>; onJump: (uttId: string) => void }) {
+  // Only show exchanges whose utterances the typewriter has already revealed.
+  const list = m.minutes.keyExchanges.filter((k) => k.utteranceIds.every((u) => seen.has(u)));
   if (list.length === 0) return <EmptyState>重要なやりとりはまだありません。</EmptyState>;
   return (
     <div className="space-y-3">
@@ -229,6 +230,8 @@ export function SidePanel({
   onJump: (uttId: string) => void;
 }) {
   const pmap = useMemo(() => Object.fromEntries(m.config.participants.map((p) => [p.id, p])), [m.config.participants]);
+  const seen = useMemo(() => new Set(utterances.map((u) => u.id)), [utterances]);
+  const exchangeCount = m.minutes.keyExchanges.filter((k) => k.utteranceIds.every((u) => seen.has(u))).length;
   const hasMinutes = m.minutes.proposals.length;
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -241,7 +244,7 @@ export function SidePanel({
           { id: "summary", label: "議事要旨" },
           { id: "map", label: "論点マップ", count: m.minutes.issues.length },
           { id: "proposals", label: "提案・決定", count: hasMinutes },
-          { id: "exchanges", label: "重要なやりとり", count: m.minutes.keyExchanges.length },
+          { id: "exchanges", label: "重要なやりとり", count: exchangeCount },
           { id: "research", label: "事前調査", count: Object.values(m.research ?? {}).filter((b) => b.status === "done").length },
         ]}
       />
@@ -259,7 +262,7 @@ export function SidePanel({
               ))}
             </div>
           ))}
-        {tab === "exchanges" && <ExchangeList m={m} pmap={pmap} onJump={onJump} />}
+        {tab === "exchanges" && <ExchangeList m={m} pmap={pmap} seen={seen} onJump={onJump} />}
         {tab === "research" && (
           <div className="space-y-2">
             {m.config.participants.map((p) => (
