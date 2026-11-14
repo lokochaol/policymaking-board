@@ -1,4 +1,5 @@
 import { TOWN_ARC } from "../seats";
+import { r2 } from "../util";
 import { AmbientOverlay, FitText, FloorLines, Glow, Landscape, ShaftDefs, Shafts, SkyWindow, Vignette, WALL_Y, type BackdropProps } from "./common";
 
 export function TownhallBackdrop({ uid, tod, boardTitle, boardSubtitle }: BackdropProps) {
@@ -79,7 +80,7 @@ export function TownhallBackdrop({ uid, tod, boardTitle, boardSubtitle }: Backdr
       {/* floor */}
       <rect y={WALL_Y} width="1600" height={900 - WALL_Y} fill={`url(#${uid}-floor)`} />
       {Array.from({ length: 22 }, (_, k) => {
-        const y = WALL_Y + (900 - WALL_Y) * Math.pow((k + 1) / 22, 1.7);
+        const y = r2(WALL_Y + (900 - WALL_Y) * Math.pow((k + 1) / 22, 1.7));
         return <line key={k} x1="0" y1={y} x2="1600" y2={y} stroke="#6a4420" strokeOpacity="0.16" strokeWidth="1.2" />;
       })}
       <FloorLines rows={1} stroke="#6a4420" opacity={0.2} step={170} n={14} />

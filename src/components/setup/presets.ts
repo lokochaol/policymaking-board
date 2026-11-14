@@ -20,7 +20,7 @@ const RAW: Preset[] = [
     topic: "高校の部活動の地域移行",
     meetingTypeId: "council",
     facilitatorRoleId: "university_professor",
-    roleIds: ["jhs_student", "hs_student", "teacher", "parent", "school_principal", "board_of_education_official", "mext_minister", "university_professor"],
+    roleIds: ["jhs_student", "hs_student_general", "hs_teacher", "parent_dual_income", "principal", "board_of_education_staff", "minister", "university_professor"],
   },
   {
     id: "transport",
@@ -28,8 +28,8 @@ const RAW: Preset[] = [
     description: "運転手・高齢者・町長・バス会社・学生",
     topic: "ライドシェアの全面解禁",
     meetingTypeId: "town_meeting",
-    facilitatorRoleId: "mayor",
-    roleIds: ["bus_driver", "elderly_resident", "mayor", "taxi_driver", "bus_company_executive", "hs_student", "mlit_official"],
+    facilitatorRoleId: "mayor_city",
+    roleIds: ["bus_driver", "elderly_resident", "mayor_city", "taxi_driver", "sme_owner", "hs_student_general", "ministry_bureaucrat"],
   },
   {
     id: "ai_work",
@@ -37,8 +37,8 @@ const RAW: Preset[] = [
     description: "エンジニア・経営者・労働組合・学生・経産省",
     topic: "生成AIの職場での利用ルール",
     meetingTypeId: "roundtable",
-    facilitatorRoleId: "university_professor",
-    roleIds: ["software_engineer", "company_ceo", "labor_union_leader", "office_worker", "meti_official", "university_student", "university_professor"],
+    facilitatorRoleId: "labor_economist",
+    roleIds: ["software_engineer", "large_corp_president", "union_chair", "office_sales", "ministry_bureaucrat", "university_student", "labor_economist"],
   },
   {
     id: "healthcare",
@@ -46,8 +46,8 @@ const RAW: Preset[] = [
     description: "医師・看護師・患者・自治体・厚労省",
     topic: "地域の中核病院の統廃合",
     meetingTypeId: "study_group",
-    facilitatorRoleId: "mayor",
-    roleIds: ["doctor", "nurse", "patient_family", "mayor", "mhlw_official", "care_worker", "elderly_resident"],
+    facilitatorRoleId: "mayor_city",
+    roleIds: ["doctor_hospital", "nurse", "family_caregiver", "mayor_city", "ministry_bureaucrat", "care_worker", "elderly_resident"],
   },
   {
     id: "agri",
@@ -55,8 +55,8 @@ const RAW: Preset[] = [
     description: "農家・消費者・JA・流通・環境NPO",
     topic: "農業の担い手不足と食料安全保障",
     meetingTypeId: "hearing",
-    facilitatorRoleId: "university_professor",
-    roleIds: ["farmer", "consumer", "jaf_staff", "supermarket_manager", "environment_ngo", "maff_official", "university_professor"],
+    facilitatorRoleId: "economist",
+    roleIds: ["rice_farmer", "consumer_advocate", "agricultural_coop_staff", "convenience_manager", "environmental_activist", "ministry_bureaucrat", "economist"],
   },
 ];
 

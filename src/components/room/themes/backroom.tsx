@@ -1,5 +1,6 @@
 import { ZA_TABLE } from "../seats";
-import { AmbientOverlay, FitText, FloorLines, Glow, SKY, ShaftDefs, Shafts, Vignette, WALL_Y, rng, type BackdropProps, type TimeOfDay } from "./common";
+import { clipText } from "../util";
+import { AmbientOverlay, FloorLines, Glow, SKY, ShaftDefs, Shafts, Vignette, WALL_Y, rng, type BackdropProps, type TimeOfDay } from "./common";
 
 const PAPER: Record<TimeOfDay, string> = { morning: "#fff1d2", day: "#fffdf6", evening: "#ffd9a8", night: "#c9d2f4" };
 
@@ -63,7 +64,7 @@ function Andon({ x, y, uid, id }: { x: number; y: number; uid: string; id: strin
 }
 
 export function BackroomBackdrop({ uid, tod, boardTitle, boardSubtitle }: BackdropProps) {
-  const title = (boardTitle || "根回し").replace(/\s+/g, "").slice(0, 8);
+  const title = clipText((boardTitle || "根回し").replace(/\s+/g, ""), 8);
   const sub = (boardSubtitle || "").replace(/\s+/g, "").slice(0, 8);
   return (
     <g>
@@ -111,23 +112,19 @@ export function BackroomBackdrop({ uid, tod, boardTitle, boardSubtitle }: Backdr
         <rect x="256" y="314" width="128" height="8" rx="3" fill="#2a1a0e" />
         <circle cx="256" cy="318" r="5" fill="#6a4a2a" />
         <circle cx="384" cy="318" r="5" fill="#6a4a2a" />
-        <text
-          x={sub ? 332 : 320}
-          y="124"
-          fontSize={Math.min(34, 190 / Math.max(title.length, 1))}
-          fontWeight="700"
-          fill="#1e1a14"
-          fontFamily='"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif'
-          style={{ writingMode: "vertical-rl", textOrientation: "upright" }}
-          textAnchor="start"
-        >
-          {title}
-        </text>
-        {sub && (
-          <text x="298" y="150" fontSize="15" fill="#6a2a22" fontFamily='"Hiragino Mincho ProN","Noto Serif JP",serif' style={{ writingMode: "vertical-rl", textOrientation: "upright" }}>
-            {sub}
+        {Array.from(title).map((ch, i, arr) => {
+          const size = Math.min(30, 170 / Math.max(arr.length, 1));
+          return (
+            <text key={i} x={sub ? 332 : 320} y={126 + i * size * 1.02} fontSize={size} fontWeight="700" fill="#1e1a14" textAnchor="middle" fontFamily='"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif'>
+              {ch}
+            </text>
+          );
+        })}
+        {Array.from(sub).map((ch, i) => (
+          <text key={i} x="298" y={140 + i * 16} fontSize="14" fill="#6a2a22" textAnchor="middle" fontFamily='"Hiragino Mincho ProN","Noto Serif JP",serif'>
+            {ch}
           </text>
-        )}
+        ))}
         <circle cx={sub ? 352 : 340} cy="284" r="7" fill="#c63a2e" opacity="0.85" />
         {/* ikebana */}
         <g transform="translate(456 326)">

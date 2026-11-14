@@ -32,7 +32,10 @@ const RoleCard = memo(function RoleCard({
     >
       <PersonAvatar participant={preview} size={44} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-bold text-ink">{role.title}</span>
+        <span className="block truncate text-sm font-bold text-ink">
+          {role.title}
+          {role.id.startsWith("custom_") && <span className="ml-1.5 rounded bg-gold-soft px-1 text-[10px] font-medium text-gold-dark">作成</span>}
+        </span>
         <span className="line-clamp-2 text-xs leading-snug text-ink-soft">{role.description}</span>
       </span>
       {count > 0 ? (
@@ -47,6 +50,7 @@ const RoleCard = memo(function RoleCard({
 export function RolePicker({
   countryCode,
   onCountry,
+  customRoles,
   roleCounts,
   canAdd,
   onAdd,
@@ -54,12 +58,13 @@ export function RolePicker({
 }: {
   countryCode: string;
   onCountry: (c: string) => void;
+  customRoles: RoleTemplate[];
   roleCounts: Record<string, number>;
   canAdd: boolean;
   onAdd: (roleId: string) => void;
   onPreset: (p: Preset) => void;
 }) {
-  const [cat, setCat] = useState<RoleCategory | "all">("all");
+  const [cat, setCat] = useState<RoleCategory | "all" | "custom">("all");
   const [q, setQ] = useState("");
   const presets = useMemo(() => resolvePresets(), []);
 
@@ -70,8 +75,9 @@ export function RolePicker({
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return ROLES.filter((r) => (cat === "all" || r.category === cat) && (!s || `${r.title}${r.shortTitle}${r.description}`.toLowerCase().includes(s)));
-  }, [cat, q]);
+    const all = [...customRoles, ...ROLES];
+    return all.filter((r) => (cat === "all" || (cat === "custom" ? r.id.startsWith("custom_") : r.category === cat)) && (!s || `${r.title}${r.shortTitle}${r.description}`.toLowerCase().includes(s)));
+  }, [cat, q, customRoles]);
 
   return (
     <section>
@@ -130,10 +136,10 @@ export function RolePicker({
         className="mb-3 pb-1"
         value={cat}
         onChange={setCat}
-        tabs={[{ id: "all" as const, label: "すべて" }, ...cats.map((c) => ({ id: c, label: CATEGORY_LABELS[c] }))]}
+        tabs={[{ id: "all" as const, label: "すべて" }, ...(customRoles.length ? [{ id: "custom" as const, label: `作成した立場 (${customRoles.length})` }] : []), ...cats.map((c) => ({ id: c, label: CATEGORY_LABELS[c] }))]}
       />
 
-      <div className="scroll-thin grid max-h-[420px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-[520px] lg:grid-cols-1 xl:grid-cols-2">
+      <div className="scroll-thin grid max-h-[420px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-[520px] lg:grid-cols-1">
         {filtered.map((r) => (
           <RoleCard key={r.id} role={r} countryCode={countryCode} count={roleCounts[r.id] ?? 0} disabled={!canAdd} onAdd={onAdd} />
         ))}

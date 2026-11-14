@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { DecisionRule, DisclosureLevel, MeetingConfig, MeetingTypeId, ModelTier, Participant } from "@/lib/types";
+import type { DecisionRule, DisclosureLevel, MeetingConfig, MeetingTypeId, ModelTier, Participant, RoleTemplate } from "@/lib/types";
+import { loadCustomRoles } from "@/lib/customRoles";
+import StakeholderDiscovery from "./StakeholderDiscovery";
 import { MEETING_TYPES, getMeetingType } from "@/data/meetingTypes";
 import { COUNTRIES } from "@/data/countries";
 import { createParticipant, rerollParticipant } from "@/lib/participants";
@@ -40,8 +42,11 @@ export function SetupScreen() {
   const [lengthFactor, setLengthFactor] = useState(1);
   const [modelTier, setModelTier] = useState<ModelTier>("standard");
 
+  const [customRoles, setCustomRoles] = useState<RoleTemplate[]>([]);
+
   useEffect(() => {
     useMeetingStore.getState().hydrate();
+    setCustomRoles(loadCustomRoles());
   }, []);
 
   const pickType = (id: MeetingTypeId) => {
@@ -51,17 +56,18 @@ export function SetupScreen() {
     setDecisionRule(t.decisionRule);
   };
 
-  const add = useCallback(
-    (roleId: string) => {
+  const addParticipant = useCallback(
+    (roleId: string, cc: string) => {
       setParticipants((prev) => {
         if (prev.length >= type.maxParticipants) return prev;
-        const p = createParticipant(roleId, countryCode, seedOf(), prev.length);
+        const p = createParticipant(roleId, cc, seedOf(), prev.length);
         const withFac = prev.some((x) => x.isFacilitator) ? { ...p, isFacilitator: false } : { ...p, isFacilitator: true };
         return arrange([...prev, withFac]);
       });
     },
-    [countryCode, type.maxParticipants],
+    [type.maxParticipants],
   );
+  const add = useCallback((roleId: string) => addParticipant(roleId, countryCode), [addParticipant, countryCode]);
 
   const applyPreset = (preset: Preset) => {
     const facRole = preset.facilitatorRoleId && preset.roleIds.includes(preset.facilitatorRoleId) ? preset.facilitatorRoleId : preset.roleIds[0];
@@ -110,7 +116,7 @@ export function SetupScreen() {
       facilitatorId: facilitator.id,
       modelTier,
       lengthFactor,
-      customRoles: [],
+      customRoles: customRoles.filter((r) => participants.some((p) => p.roleId === r.id)),
     };
     const id = createMeeting(config);
     router.push(`/meeting/${id}`);
@@ -126,10 +132,11 @@ export function SetupScreen() {
         <span className="w-12" />
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_3fr]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <RolePicker
           countryCode={countryCode}
           onCountry={setCountryCode}
+          customRoles={customRoles}
           roleCounts={roleCounts}
           canAdd={participants.length < type.maxParticipants}
           onAdd={add}
@@ -150,7 +157,17 @@ export function SetupScreen() {
 
       <div className="mt-8 space-y-8 border-t border-line pt-8">
         <TopicInput topic={topic} background={background} onTopic={setTopic} onBackground={setBackground} />
-        {/* 将来: 「関係者を洗い出す」パネル（docs §3.1c）をここに追加する */}
+        <StakeholderDiscovery
+          topic={topic}
+          background={background}
+          countryCode={countryCode}
+          selectedRoleIds={participants.map((p) => p.roleId)}
+          customRoles={customRoles}
+          modelTier={modelTier}
+          participantCount={participants.length}
+          onRoleCreated={(role) => setCustomRoles((prev) => (prev.some((r) => r.id === role.id) ? prev : [...prev, role]))}
+          onAddRole={(roleId, cc) => addParticipant(roleId, cc)}
+        />
         <MeetingTypePicker value={typeId} onChange={pickType} />
         <AdvancedSettings
           type={type}

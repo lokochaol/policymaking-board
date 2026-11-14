@@ -42,6 +42,8 @@
 }
 
 .speaking {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
   animation: bob 0.62s ease-in-out infinite alternate;
 }
 @keyframes bob {
@@ -59,6 +61,8 @@
 }
 
 .bubbleIn {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
   animation: bubbleIn 0.28s ease-out both;
 }
 @keyframes bubbleIn {
@@ -103,6 +107,8 @@
 }
 
 .cloud {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
   animation: cloudIn 0.4s ease-out both, cloudFloat 3.6s ease-in-out 0.4s infinite alternate;
 }
 @keyframes cloudIn {
@@ -124,7 +130,7 @@
 .thoughtText {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   word-break: break-all;
 }

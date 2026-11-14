@@ -52,3 +52,6 @@ export function clipText(s: string, maxUnits: number): string {
   }
   return out + "…";
 }
+
+/** Round to 2 decimals so SSR and client agree on float output of Math.pow / sin / cos. */
+export const r2 = (v: number) => Math.round(v * 100) / 100;

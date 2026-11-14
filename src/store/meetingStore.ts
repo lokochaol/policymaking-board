@@ -14,6 +14,7 @@ import type {
   Stance,
 } from "@/lib/types";
 import { getMeetingType } from "@/data/meetingTypes";
+import { registerCustomRoles } from "@/data/roles";
 
 export const STORAGE_KEY = "pmb:meetings:v1";
 
@@ -323,6 +324,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
           const src = parsed && typeof parsed === "object" && parsed.meetings ? parsed.meetings : {};
           for (const [k, v] of Object.entries(src as Record<string, MeetingState>)) {
             if (v && v.config && Array.isArray(v.utterances)) {
+              registerCustomRoles(v.config.customRoles);
               const fixed = { ...v, research: v.research ?? {} };
               meetings[k] = fixed.status === "running" ? { ...fixed, status: "paused" } : fixed;
             }
@@ -342,6 +344,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
     },
 
     createMeeting: (config) => {
+      registerCustomRoles(config.customRoles);
       const state: MeetingState = {
         config,
         status: "preparing",

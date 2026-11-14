@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { darken, lighten } from "../util";
+import { darken, lighten, r2 } from "../util";
 
 export type TimeOfDay = "morning" | "day" | "evening" | "night";
 
@@ -83,11 +83,11 @@ export function FloorLines({
   const lines: ReactNode[] = [];
   for (let i = -n; i <= n; i++) {
     const xb = vx + i * step;
-    const x0 = vx + ((xb - vx) * (y0 - vy)) / (900 - vy);
+    const x0 = r2(vx + ((xb - vx) * (y0 - vy)) / (900 - vy));
     lines.push(<line key={`v${i}`} x1={x0} y1={y0} x2={xb} y2={900} />);
   }
   for (let k = 1; k < rows; k++) {
-    const y = y0 + (900 - y0) * Math.pow(k / rows, 1.8);
+    const y = r2(y0 + (900 - y0) * Math.pow(k / rows, 1.8));
     lines.push(<line key={`h${k}`} x1={0} y1={y} x2={1600} y2={y} />);
   }
   return (

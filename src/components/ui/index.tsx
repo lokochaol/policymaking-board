@@ -61,7 +61,7 @@ const BTN: Record<BtnVariant, string> = {
   gold: "bg-gold text-white hover:bg-gold-dark shadow-soft disabled:bg-stone-300 disabled:shadow-none",
   secondary: "bg-card text-ink border border-line hover:bg-paper-2 disabled:text-ink-faint disabled:hover:bg-card",
   ghost: "text-ink-soft hover:bg-paper-2 hover:text-ink disabled:text-ink-faint disabled:hover:bg-transparent",
-  danger: "bg-card text-rose-700 border border-rose-200 hover:bg-rose-50",
+  danger: "bg-card text-rose-700 border border-rose-200 hover:bg-rose-50 disabled:text-ink-faint disabled:border-line disabled:hover:bg-card",
 };
 
 export function Button({

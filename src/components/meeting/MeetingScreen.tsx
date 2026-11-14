@@ -111,7 +111,7 @@ export function MeetingScreen({ id }: { id: string }) {
   const speakingNow = !preparing && !!speaker && st !== "finished";
 
   return (
-    <div className="flex min-h-screen flex-col pb-24">
+    <div className="flex min-h-screen flex-col pb-44 sm:pb-24">
       <TopBar m={m} />
 
       {preparing && (
@@ -139,7 +139,7 @@ export function MeetingScreen({ id }: { id: string }) {
         </div>
       )}
 
-      <div className={`mx-auto grid w-full max-w-[1600px] flex-1 gap-4 p-3 sm:p-5 ${panelOpen ? "lg:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>
+      <div className={`mx-auto grid w-full max-w-[1600px] flex-1 grid-cols-[minmax(0,1fr)] gap-4 p-3 sm:p-5 ${panelOpen ? "lg:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>
         <main className="min-w-0 space-y-3">
           <div className="overflow-hidden rounded-2xl border border-line bg-navy-dark shadow-lift">
             <Room
