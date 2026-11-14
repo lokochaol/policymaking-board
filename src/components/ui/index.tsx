@@ -3,7 +3,7 @@
 import type { ReactNode, ButtonHTMLAttributes } from "react";
 import type { DisclosureLevel, Participant, Stance } from "@/lib/types";
 import { DISCLOSURE_LABELS } from "@/data/meetingTypes";
-import { Avatar } from "@/components/room/Avatar";
+import Avatar from "@/components/room/Avatar";
 import type { Expression } from "@/components/room/types";
 import { STANCE_COLOR, STANCE_LABEL, type Tone } from "./labels";
 

@@ -3,7 +3,7 @@
 import type { Participant, RoomTheme } from "@/lib/types";
 import { COUNTRIES } from "@/data/countries";
 import { getRole } from "@/data/roles";
-import { Room } from "@/components/room/Room";
+import Room from "@/components/room/Room";
 import { Button, PersonAvatar, SectionTitle } from "@/components/ui";
 
 export function RoomPreview({
