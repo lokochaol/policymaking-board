@@ -186,6 +186,35 @@ export interface MeetingConfig {
   modelTier: ModelTier;
   /** Multiplier on phase turn budgets: 0.5 short, 1 normal, 2 long. */
   lengthFactor: number;
+  /** Roles created on demand for this topic (not in the static catalog). */
+  customRoles: RoleTemplate[];
+}
+
+// ---------- Stakeholder discovery ----------
+
+export type StakeholderGroup =
+  | "direct" // 直接の当事者
+  | "affected" // 影響を受ける人
+  | "decision_maker" // 決定権を持つ人
+  | "implementer" // 実施・運用を担う人
+  | "funder" // 費用を負担する人
+  | "expert" // 専門的知見を持つ人
+  | "overlooked"; // 見落とされがちな声
+
+export interface StakeholderSuggestion {
+  id: string;
+  group: StakeholderGroup;
+  /** Existing catalog role (static or custom), if one fits. */
+  roleId?: string;
+  /** When no role fits: a role to be created on demand. */
+  newRole?: { title: string; category: RoleCategory; sketch: string };
+  /** Suggested country (defaults to the meeting's main country). */
+  countryCode?: string;
+  /** Why this stakeholder matters for this topic (1-2 sentences). */
+  reason: string;
+  /** What they stand to gain or lose. */
+  stakes: string;
+  importance: "high" | "medium" | "low";
 }
 
 // ---------- Live meeting state ----------

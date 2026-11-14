@@ -77,6 +77,23 @@ POST /api/meeting/prepare
 - モックモードでは、決定的なダミーの調査結果を返す
 - UI：準備中は会議室の各アバターに「調査中…」と、実行中の検索クエリを表示する。結果画面に「各立場の事前調査」セクション（調べ方、メモ、出典のリンク）を追加する
 
+### 3.1c 関係する立場の洗い出しと、立場の新規作成
+議題が決まったら、関係する立場を**網羅的に洗い出し**、「この立場の人も関わってくるので、会議に追加しますか？」と提案する。カタログにない立場は、その都度調査して新しく作る（時間と費用をかけてよい）。
+
+```
+POST /api/stakeholders/discover
+  req:  { topic, background?, countryCodes: string[], selectedRoleIds: string[], customRoles: RoleTemplate[], modelTier }
+  res:  { suggestions: StakeholderSuggestion[]; usage }
+POST /api/stakeholders/create-role
+  req:  { title, category, sketch, topic, countryCode?, modelTier }
+  res:  { role: RoleTemplate; usage }
+```
+- discover：ウェブ検索（max_uses 5）で、議題の利害関係者を調べる。カタログの役割一覧（id・肩書き・カテゴリ）をプロンプトに入れ、合うものは roleId で、合わないものは newRole で返す。7つのグループ（直接の当事者 / 影響を受ける人 / 決定権を持つ人 / 実施・運用を担う人 / 費用を負担する人 / 専門家 / 見落とされがちな声）すべてを検討し、15〜30件出す。すでに選ばれている立場は除く。モデル：standard / premium は Opus 5.5、economy は Sonnet 5.5
+- create-role：その立場についてウェブ検索で調べ（現場の実態、利害、よくある主張、業界の事情）、`RoleTemplate` を構造化出力で作る。id は `custom_` で始まる。outfit と accessory は既存の値から選ぶ。モデル：Sonnet 5.5（premium は Opus 5.5）
+- 作った役割は localStorage（`pmb:customRoles:v1`）に保存して次の会議でも使えるようにし、`MeetingConfig.customRoles` に入れてサーバーに渡す
+- 役割の参照はレジストリにする：`src/data/roles.ts` の `registerCustomRoles(roles)` と `getRole(id)`（静的なカタログ → カスタムの順に探す）。サーバー側は、リクエストのたびに config.customRoles を登録してから処理する
+- UI：セットアップで議題を入れたら「関係者を洗い出す」ボタン。結果はグループごとのカードで、理由と利害、重要度を表示する。既存の役割は「追加」で着席する。新しい役割は「作成して追加」で、作成中はスピナーを出し、完成したら着席する。「すべての重要度高を追加」の一括操作も用意する。参加者が16人を超えそうなら警告する
+
 ### 3.2 1ターンの流れ（step）
 1. **進行役の判断**（facilitator）：現在のフェーズ、フェーズ内のターン数と予算、最近の発言、議事要旨、未発言・発言が少ない人をもとに `FacilitatorDecision` を返す。
    - `roundRobin` のフェーズでは、次の話者を発言順のリストからコードで決め、LLMには進行役の短い発言と話者への指示だけを書かせる（費用削減）
