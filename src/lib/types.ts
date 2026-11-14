@@ -184,10 +184,21 @@ export interface MeetingConfig {
   participants: Participant[];
   facilitatorId: string;
   modelTier: ModelTier;
-  /** Multiplier on phase turn budgets: 0.5 short, 1 normal, 2 long. */
-  lengthFactor: number;
+  /** Scheduled meeting length in in-meeting minutes (15 | 30 | 60 | 90 | 120). */
+  durationMinutes: number;
+  /** When this meeting continues an earlier one (第2回以降). */
+  carryOver?: CarryOver;
   /** Roles created on demand for this topic (not in the static catalog). */
   customRoles: RoleTemplate[];
+}
+
+/** Context handed from a previous session of the same meeting series. */
+export interface CarryOver {
+  previousMeetingId: string;
+  sessionNumber: number; // 2 for 第2回 …
+  previousSummary: string; // 前回の議事要旨
+  continuation: Continuation;
+  previousDecisions: { title: string; status: ProposalStatus }[];
 }
 
 // ---------- Stakeholder discovery ----------
@@ -224,6 +235,10 @@ export type Stance = "strong_support" | "support" | "neutral" | "concern" | "opp
 export interface Utterance {
   id: string;
   turn: number;
+  /** In-meeting clock (minutes since opening) when this utterance started. */
+  atMinute: number;
+  /** Estimated speaking time in minutes. */
+  durationMin: number;
   phaseId: string;
   speakerId: string; // participant id
   /** "speech" = normal; "facilitation" = facilitator acting as chair; "aside" = whisper visible only in offrecord */
@@ -301,6 +316,7 @@ export interface MeetingState {
   turn: number;
   /** Turns spent in the current phase. */
   phaseTurn: number;
+  clock: MeetingClock;
   utterances: Utterance[];
   minutes: Minutes;
   /** Directive from the facilitator for the next speaker. */
@@ -314,6 +330,22 @@ export interface MeetingState {
   initialStances: Record<string, { stance: Stance; summary: string }>;
   usage: UsageTotals;
   error?: string;
+}
+
+/**
+ * In-meeting clock. Advances by the estimated speaking time of each utterance
+ * (≈300 chars/min + handover), independent of real API latency.
+ */
+export interface MeetingClock {
+  elapsedMin: number;
+  /** Time plan per phase, decided at opening by the facilitator logic. */
+  plan: { phaseId: string; plannedMin: number }[];
+  /** Clock value when the current phase started. */
+  phaseStartedAtMin: number;
+  /** Minutes reserved at the end for the final confirmation round + closing. */
+  reserveMin: number;
+  /** Set when the meeting was wrapped up because time ran out. */
+  timeUp?: boolean;
 }
 
 export interface UsageTotals {
@@ -409,4 +441,20 @@ export interface MeetingOutcome {
   nextSteps: string[];
   /** Final formal minutes in Markdown. */
   minutesMarkdown: string;
+  /** How far the meeting got and where the next session should start. */
+  continuation: Continuation;
+}
+
+export interface Continuation {
+  /** 収束度 */
+  convergence: "converged" | "partially" | "not_converged";
+  reachedPoint: string; // どこまで進んだか
+  agreedSoFar: string[]; // ここまでに合意できたこと
+  openIssues: string[]; // 残った論点
+  nextStartPoint: string; // 次回はどこから始めるか
+  nextAgenda: string[]; // 次回の議題案
+  /** Homework per participant before the next session (optional). */
+  homework: { participantId: string; task: string }[];
+  /** Whether time ran out before the planned phases finished. */
+  timeUp: boolean;
 }
