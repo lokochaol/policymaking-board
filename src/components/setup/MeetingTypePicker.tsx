@@ -28,7 +28,7 @@ export function TopicInput({
     <section>
       <SectionTitle step={2}>議題を決める</SectionTitle>
       <label className="block text-xs font-medium text-ink-soft" htmlFor="topic">
-        議題（必須）
+        議題（必須）<span className="ml-2 text-ink-faint">{topic.length}/120</span>
       </label>
       <input
         id="topic"
@@ -51,7 +51,7 @@ export function TopicInput({
         ))}
       </div>
       <label className="mt-4 block text-xs font-medium text-ink-soft" htmlFor="background">
-        背景（任意）
+        背景（任意）<span className="ml-2 text-ink-faint">{background.length}/800</span>
       </label>
       <textarea
         id="background"

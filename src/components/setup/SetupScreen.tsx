@@ -109,7 +109,10 @@ export function SetupScreen() {
   const problems: string[] = [];
   if (participants.length < 2) problems.push("参加者を2人以上選んでください");
   if (participants.length >= 2 && !facilitator) problems.push("進行役を任命してください（会議室の席をクリック）");
+  if (participants.length > Math.min(type.maxParticipants, 16)) problems.push(`この会議の種類は${Math.min(type.maxParticipants, 16)}人までです。参加者を減らしてください`);
   if (!topic.trim()) problems.push("議題を入力してください");
+  if (topic.trim().length > 500) problems.push("議題は500字以内にしてください");
+  if (background.trim().length > 3000) problems.push("背景は3000字以内にしてください");
   const notes: string[] = [];
   if (participants.length >= 2 && participants.length < type.minParticipants) notes.push(`この会議の種類は${type.minParticipants}人以上が推奨です`);
 
@@ -127,7 +130,7 @@ export function SetupScreen() {
       facilitatorId: facilitator.id,
       modelTier,
       lengthFactor,
-      customRoles: customRoles.filter((r) => participants.some((p) => p.roleId === r.id)),
+      customRoles: customRoles.filter((r) => participants.some((p) => p.roleId === r.id)).slice(0, 20),
     };
     const id = createMeeting(config, spend.current);
     router.push(`/meeting/${id}`);

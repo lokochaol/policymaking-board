@@ -60,6 +60,7 @@ const PREPARE_CONCURRENCY = 3;
 interface CloseResponse {
   outcome: MeetingOutcome;
   usage: UsageTotals;
+  degraded?: boolean;
 }
 
 interface SatisfactionResponse {
@@ -184,11 +185,11 @@ function scheduleSave() {
 async function readError(r: Response): Promise<string> {
   try {
     const j = await r.json();
-    if (j && typeof j.error === "string") return j.error;
+    if (j && typeof j.error === "string") return r.status === 400 ? `入力内容を受け付けられませんでした：${j.error}` : j.error;
   } catch {
     /* ignore */
   }
-  return `サーバーエラー (${r.status})`;
+  return r.status === 400 ? "入力内容がサーバーの受け付け範囲を超えています（人数・文字数などをご確認ください）" : `サーバーエラー (${r.status})`;
 }
 
 export const useMeetingStore = create<MeetingStore>((set, get) => {
@@ -330,7 +331,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
       if (!m) return;
       const data = await postJson<CloseResponse>("/api/meeting/close", { state: { ...m, error: undefined } });
       failedAt.delete(id);
-      patch(id, (cur) => ({ outcome: data.outcome, usage: maxUsage(cur.usage, data.usage), status: "finished", error: undefined }));
+      patch(id, (cur) => ({ outcome: data.degraded ? ({ ...data.outcome, degraded: true } as MeetingOutcome) : data.outcome, usage: maxUsage(cur.usage, data.usage), status: "finished", error: undefined }));
     });
 
   const doClose = async (id: string, alive: () => boolean) => {
