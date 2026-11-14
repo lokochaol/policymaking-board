@@ -23,7 +23,6 @@ function Flag({ x, kind }: { x: number; kind: "nation" | "ministry" }) {
       <circle cx="0" cy="58" r="7" fill="#e5bd45" stroke="#9a7420" />
       <g transform="translate(3 72)">
         <path d="M0,0 C30,-8 60,10 96,0 L96,96 C60,106 30,88 0,96 Z" fill={nation ? "#1f3a78" : "#f4f1e6"} />
-        <path d="M0,0 C30,-8 60,10 96,0 L96,96 C60,106 30,88 0,96 Z" fill="url(#none)" />
         <path d="M0,0 C30,-8 60,10 96,0 L96,12 C60,22 30,4 0,12 Z" fill="#000" opacity="0.07" />
         {nation ? (
           <g transform="translate(48 48)">
