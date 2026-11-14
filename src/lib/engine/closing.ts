@@ -1,3 +1,4 @@
+import { withDecisionsSection } from "./minutesFormat";
 import type {
   KeyExchange,
   MeetingOutcome,
@@ -128,7 +129,7 @@ export async function runClosing(
     satisfaction: reports,
     unresolvedIssues: r.unresolvedIssues,
     nextSteps: r.nextSteps,
-    minutesMarkdown: r.minutesMarkdown,
+    minutesMarkdown: withDecisionsSection(r.minutesMarkdown, decisions),
   };
   return { outcome, degraded: false };
 }

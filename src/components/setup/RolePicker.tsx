@@ -140,7 +140,7 @@ export function RolePicker({
         tabs={[{ id: "all" as const, label: "すべて" }, ...(customRoles.length ? [{ id: "custom" as const, label: `作成した立場 (${customRoles.length})` }] : []), ...cats.map((c) => ({ id: c, label: CATEGORY_LABELS[c] }))]}
       />
 
-      <div className="scroll-thin grid max-h-[420px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-[520px] lg:grid-cols-1">
+      <div className="scroll-thin grid max-h-[420px] grid-cols-[minmax(0,1fr)] gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-[520px] lg:grid-cols-[minmax(0,1fr)]">
         {filtered.map((r) => (
           <RoleCard key={r.id} role={r} countryCode={countryCode} count={roleCounts[r.id] ?? 0} disabled={!canAdd} onAdd={onAdd} />
         ))}

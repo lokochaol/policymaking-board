@@ -1,3 +1,4 @@
+import { decisionsSection } from "./minutesFormat";
 import type {
   FacilitatorDecision,
   KeyExchange,
@@ -383,8 +384,7 @@ export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], 
       `- 議題：${state.config.topic}`,
       `## 議事概要`,
       state.minutes.summary || "（概要なし）",
-      `## 決定事項`,
-      ...decisions.map((d) => `- ${d.title}（${d.status}）`),
+      decisionsSection(decisions),
       `## 今後の予定`,
       `- 継続協議`,
     ].join("\n"),

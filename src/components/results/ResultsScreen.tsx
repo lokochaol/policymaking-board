@@ -255,8 +255,14 @@ function Dashboard({ m, pmap }: { m: MeetingState; pmap: PMap }) {
           全体の平均 <strong className="mx-1 text-2xl font-semibold tabular-nums text-ink">{avg}</strong> / 100
         </p>
         <div className="mb-4 space-y-1.5">
-          <ConsentLegend />
-          <StanceLegend />
+          <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-ink-3">
+            <span className="w-14">納得度</span>
+            <ConsentLegend />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-ink-3">
+            <span className="w-14">スタンス</span>
+            <StanceLegend />
+          </div>
         </div>
         <ul className="space-y-2">
           {sat.map((r) => (

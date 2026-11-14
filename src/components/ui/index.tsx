@@ -105,7 +105,7 @@ export function Tabs<T extends string>({
         const base = "shrink-0 whitespace-nowrap text-sm transition-colors";
         const cls =
           variant === "underline"
-            ? `${base} -mb-px border-b-2 px-3 py-2 ${active ? "border-blue font-medium text-blue-strong" : "border-transparent text-ink-2 hover:text-ink"}`
+            ? `${base} -mb-px border-b-2 px-2.5 py-2 ${active ? "border-blue font-medium text-blue-strong" : "border-transparent text-ink-2 hover:text-ink"}`
             : `${base} rounded-sm border px-2.5 py-1 text-xs ${active ? "border-blue/50 bg-blue-tint font-medium text-blue-strong" : "border-line bg-white text-ink-2 hover:border-ink-3 hover:text-ink"}`;
         return (
           <button key={t.id} role="tab" aria-selected={active} type="button" onClick={() => onChange(t.id)} className={cls}>
