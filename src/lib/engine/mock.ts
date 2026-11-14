@@ -1,0 +1,361 @@
+import type {
+  FacilitatorDecision,
+  KeyExchange,
+  MeetingOutcome,
+  MeetingState,
+  Minutes,
+  Participant,
+  PhaseDef,
+  Proposal,
+  ProposalStatus,
+  ResearchBrief,
+  SatisfactionReport,
+  SpeakerOutput,
+  Stance,
+} from "@/lib/types";
+import { getMeetingType } from "@/data/meetingTypes";
+import type { ProposalTally } from "./tally";
+import { roleById, hashString, nameOf, pick, roleTitleOf, stanceToConsent } from "./util";
+
+const BASE_STANCES: Stance[] = ["support", "concern", "oppose", "neutral", "strong_support", "concern", "support"];
+
+function roleOf(p: Participant) {
+  return roleById(p.roleId);
+}
+
+export function mockInitialStance(p: Participant): { stance: Stance; summary: string } {
+  const stance = BASE_STANCES[hashString(p.id) % BASE_STANCES.length];
+  const interest = roleOf(p)?.interests[0] ?? "自分の暮らし";
+  const verb: Record<Stance, string> = {
+    strong_support: "積極的に進めたい",
+    support: "基本的に前向き",
+    neutral: "様子を見たい",
+    concern: "懸念を持っている",
+    oppose: "慎重・反対寄り",
+  };
+  return { stance, summary: `${interest}を重視し、${verb[stance]}` };
+}
+
+export function mockStances(state: MeetingState): Record<string, { stance: Stance; summary: string }> {
+  const out: Record<string, { stance: Stance; summary: string }> = {};
+  for (const p of state.config.participants) out[p.id] = mockInitialStance(p);
+  return out;
+}
+
+// ---------- Research ----------
+
+const APPROACHES = [
+  "役所の統計資料と白書を中心に、数字で現状を確認した。",
+  "SNSや掲示板で、同じ立場の人たちの生の声を集めた。",
+  "業界紙や専門誌の記事をたどり、他の地域・他国の事例を調べた。",
+  "自分の職場や仲間に聞き取りをして、現場の実感を整理した。",
+  "新聞の過去記事と国会・議会の議事録を読んで、これまでの経緯を押さえた。",
+  "関連する論文や調査報告を探して、エビデンスを確認した。",
+];
+
+export function mockBrief(state: MeetingState, p: Participant): ResearchBrief {
+  const role = roleOf(p);
+  const topic = state.config.topic;
+  const approach = pick(APPROACHES, p.id + "ap");
+  const interest = role?.interests[0] ?? "自分の暮らし";
+  const concern = role?.concerns[0] ?? "負担の増加";
+  const q = [`${topic} 現状`, `${topic} ${roleTitleOf(p)} 影響`, `${topic} 事例 海外`].slice(0, 2 + (hashString(p.id) % 2));
+  const sources = [
+    { title: `${topic}に関する調査（ダミー）`, url: `https://example.com/mock/${hashString(p.id + "a") % 1000}` },
+    { title: `${roleTitleOf(p)}の現場から（ダミー）`, url: `https://example.org/mock/${hashString(p.id + "b") % 1000}` },
+  ];
+  return {
+    participantId: p.id,
+    status: "done",
+    queries: q,
+    approach,
+    summary: `${approach}「${topic}」は、${interest}に直結する話だと分かった。一方で${concern}という声も多く、数字だけでは見えない事情がある。会議では自分の立場の事情を具体的に伝えたい。`,
+    keyFacts: [
+      { fact: `${topic}をめぐっては、地域や立場によって受け止めが大きく割れている。`, source: sources[0] },
+      { fact: `${roleTitleOf(p)}の立場では、${concern}が最大の関心事になっている。`, source: sources[1] },
+    ],
+    talkingPoints: [`${interest}を守れる形にしてほしい`, `${concern}への手当てを先に示すべき`],
+    questionsToRaise: [`費用は誰がどう負担するのか`, `やってみてうまくいかなかったときの見直しの仕組みは`],
+    sources,
+  };
+}
+
+// ---------- Facilitator ----------
+
+export function mockFacilitatorLite(
+  state: MeetingState,
+  phase: PhaseDef,
+  nextId: string,
+  first: boolean,
+): { facilitatorRemark: string; prompt: string; innerThought: string } {
+  const nm = nameOf(state, nextId);
+  const remark = first
+    ? `それでは「${phase.name}」に入ります。${phase.goal}`
+    : pick([`では、${nm}さん、お願いします。`, `続いて${nm}さんのお考えを伺います。`, `${nm}さん、いかがでしょうか。`], `${nextId}${state.turn}`);
+  return {
+    facilitatorRemark: remark,
+    prompt: `${phase.name}として、自分の立場から率直に、具体例を交えて話してください。`,
+    innerThought: `まだ発言の少ない人に回して、バランスをとりたい。`,
+  };
+}
+
+export function mockFacilitatorFree(
+  state: MeetingState,
+  phase: PhaseDef,
+  nextId: string,
+  first: boolean,
+  phaseTurn: number,
+  budget: number,
+): FacilitatorDecision {
+  const lite = mockFacilitatorLite(state, phase, nextId, first);
+  const lastSpeech = [...state.utterances].reverse().find((u) => u.kind === "speech");
+  const target = lastSpeech ? nameOf(state, lastSpeech.speakerId) : "";
+  return {
+    nextSpeakerId: nextId,
+    facilitatorRemark: phaseTurn % 3 === 1 ? "" : lite.facilitatorRemark,
+    prompt: target
+      ? `${target}さんの直前の発言に応じて、賛成か懸念かを具体的に述べてください。`
+      : lite.prompt,
+    advancePhase: phaseTurn + 1 >= Math.ceil(budget * 0.8),
+    endMeeting: false,
+    innerThought: lite.innerThought,
+  };
+}
+
+// ---------- Speaker ----------
+
+const TEXT: Record<Stance, string[]> = {
+  strong_support: [
+    "{topic}は、ぜひ進めるべきだと思います。{interest}を守るうえで、これ以上先送りはできません。",
+    "私は全面的に賛成です。現場を見ていると、{interest}のためにも今動くしかないと感じます。",
+  ],
+  support: [
+    "{topic}の方向性には賛成です。ただ、{concern}にどう配慮するかは詰めておきたいですね。",
+    "基本的には前向きです。{interest}につながるなら、条件を整えて進めるのがよいと思います。",
+  ],
+  neutral: [
+    "{topic}については、まだ判断材料が足りないと感じています。{other}さんの話をもう少し聞きたいです。",
+    "良い面も悪い面もあると思います。{interest}と{concern}、どちらを優先するのかを整理しませんか。",
+  ],
+  concern: [
+    "{topic}には懸念があります。特に{concern}が置き去りにならないか心配です。",
+    "{other}さんの案は理解できますが、{concern}への手当てがないと、現場は納得しないと思います。",
+  ],
+  oppose: [
+    "今のままの{topic}には反対です。{concern}という現実を無視して進めるべきではありません。",
+    "{other}さん、お言葉ですが、それでは{interest}が守れません。受け入れがたいです。",
+  ],
+};
+
+const THOUGHT: Record<Stance, string> = {
+  strong_support: "ここは押し切りたい。反対が出る前に勢いをつけておく。",
+  support: "賛成だが、自分の側の負担が増えない形にしておきたい。",
+  neutral: "まだ得になるのか損になるのか読めない。もう少し様子を見る。",
+  concern: "表向きは懸念と言うが、本当は自分の立場が危うくなるのが怖い。",
+  oppose: "ここで譲ると組織に戻って説明がつかない。見返りがなければ折れられない。",
+};
+
+export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef): SpeakerOutput {
+  const role = roleOf(p);
+  const n = state.config.participants.length;
+  const progress = state.phaseIndex / Math.max(1, getMeetingType(state.config.meetingTypeId).phases.length - 1);
+  let stance = BASE_STANCES[(hashString(p.id) + Math.floor(state.turn / 5)) % BASE_STANCES.length];
+  // later in the meeting people drift toward compromise
+  if (progress > 0.6 && stance === "oppose") stance = "concern";
+  if (progress > 0.75 && stance === "concern" && hashString(p.id + "c") % 2 === 0) stance = "neutral";
+  const others = state.config.participants.filter((x) => x.id !== p.id);
+  const other = others.length ? others[(hashString(p.id) + state.turn) % others.length] : p;
+  const fill = (t: string) =>
+    t
+      .replaceAll("{topic}", state.config.topic)
+      .replaceAll("{interest}", role?.interests[hashString(p.id + state.turn) % (role?.interests.length || 1)] ?? "暮らし")
+      .replaceAll("{concern}", role?.concerns[hashString(p.id + "k" + state.turn) % (role?.concerns.length || 1)] ?? "負担")
+      .replaceAll("{other}", other.name);
+  let text = fill(pick(TEXT[stance], `${p.id}${state.turn}`));
+  const ref = state.research?.[p.id];
+  if (ref?.status === "done" && state.turn % 4 === 0 && ref.keyFacts[0]) text += `調べたところ、${ref.keyFacts[0].fact}`;
+  const innerThought = role?.privateConcerns[0] ? `${THOUGHT[stance]}（${role.privateConcerns[0]}）` : THOUGHT[stance];
+
+  const proposals = state.minutes.proposals;
+  const ideaPhase = !["opening", "closing"].includes(phase.id);
+  let newProposal: SpeakerOutput["newProposal"] = null as unknown as undefined;
+  newProposal = undefined;
+  if (ideaPhase && proposals.length < Math.max(2, Math.min(4, n)) && state.turn % 4 === 1) {
+    const i = proposals.length + 1;
+    const shapes = [
+      { title: `段階的に導入し、${role?.concerns[0] ?? "負担"}に配慮する`, kind: "policy" as const },
+      { title: `${role?.interests[0] ?? "当事者の声"}を守るための支援策を設ける`, kind: "recommendation" as const },
+      { title: `1年後に効果を検証し、見直す仕組みを置く`, kind: "condition" as const },
+      { title: `費用負担のルールを先に決める`, kind: "decision" as const },
+    ];
+    const s = shapes[(i - 1) % shapes.length];
+    newProposal = {
+      title: s.title,
+      body: `${p.name}（${roleTitleOf(p)}）の提案。${state.config.topic}について、${s.title}。具体的な進め方は、関係者で協議して決める。`,
+      kind: s.kind,
+    };
+  }
+  const proposalStances = proposals.map((pr) => {
+    const arr: Stance[] = ["support", "support", "concern", "neutral", "strong_support", "oppose"];
+    const bias = progress > 0.5 ? 0 : 2;
+    return { id: pr.id, stance: arr[(hashString(p.id + pr.id) + bias) % arr.length] };
+  });
+  return {
+    text,
+    innerThought,
+    stance,
+    addressedTo: stance === "support" || stance === "strong_support" ? [] : [other.id],
+    newProposal,
+    proposalStances: Object.fromEntries(proposalStances.map((x) => [x.id, x.stance])),
+  };
+}
+
+// ---------- Scribe ----------
+
+export function mockScribe(state: MeetingState, prev: Minutes, newTurn: number): Minutes {
+  const parts = state.config.participants;
+  const recent = state.utterances.slice(-6);
+  const summary = recent
+    .filter((u) => u.kind === "speech")
+    .map((u) => `${nameOf(state, u.speakerId)}は${u.text.slice(0, 40)}との意見を述べた。`)
+    .join("")
+    .slice(0, 480);
+  const phases = getMeetingType(state.config.meetingTypeId).phases.slice(0, state.phaseIndex + 1);
+  const agendaItems = phases.map((ph) => ({
+    phaseId: ph.id,
+    title: ph.name,
+    points: state.utterances
+      .filter((u) => u.phaseId === ph.id && u.kind === "speech")
+      .slice(-3)
+      .map((u) => `${nameOf(state, u.speakerId)}：${u.text.slice(0, 50)}`),
+  }));
+  const proposals: Proposal[] = prev.proposals.map((pr) => {
+    const vals = Object.values(pr.support);
+    const ok = vals.filter((s) => s === "support" || s === "strong_support").length;
+    const bad = vals.filter((s) => s === "oppose").length;
+    const status: ProposalStatus =
+      vals.length < 2 ? "draft" : ok >= parts.length * 0.7 && bad === 0 ? "agreed" : ok >= parts.length * 0.5 ? "conditionally_agreed" : "discussing";
+    return { ...pr, status };
+  });
+  const issues = proposals.map((pr) => ({
+    id: `issue_${pr.id}`,
+    title: `「${pr.title}」をどう進めるか`,
+    positions: parts.map((p) => {
+      const role = roleOf(p);
+      return {
+        participantId: p.id,
+        position: `${pr.support[p.id] ? "意見表明済み" : "未表明"}：${role?.concerns[0] ?? "条件の確認"}を踏まえて判断`,
+        interest: role?.interests[0] ?? "暮らしの安定",
+        stance: pr.support[p.id] ?? "neutral",
+      };
+    }),
+    landingZone: pr.status === "agreed" || pr.status === "conditionally_agreed" ? `${pr.title}を、条件つきで段階的に進める` : "",
+    resolved: pr.status === "agreed",
+  }));
+  const keyExchanges: KeyExchange[] = [...prev.keyExchanges];
+  const kinds: KeyExchange["kind"][] = ["conflict", "tradeoff", "concession", "alliance", "breakthrough", "reframe"];
+  const spoken = state.utterances.filter((u) => u.kind === "speech");
+  for (let i = 1; i < spoken.length && keyExchanges.length < 6; i++) {
+    const a = spoken[i - 1];
+    const b = spoken[i];
+    const id = `kx_${b.id}`;
+    if (keyExchanges.some((k) => k.id === id)) continue;
+    const bad = (s?: Stance) => s === "oppose" || s === "concern";
+    if (bad(b.stance) !== bad(a.stance) && b.addressedTo?.includes(a.speakerId)) {
+      keyExchanges.push({
+        id,
+        title: `${nameOf(state, a.speakerId)}と${nameOf(state, b.speakerId)}のやりとり`,
+        kind: kinds[keyExchanges.length % kinds.length],
+        utteranceIds: [a.id, b.id],
+        participantIds: [a.speakerId, b.speakerId],
+        summary: `${nameOf(state, b.speakerId)}が${nameOf(state, a.speakerId)}の発言に対し、立場の違いを明らかにした。`,
+        significance: "論点の対立軸が見え、その後の調整の出発点になった。",
+      });
+    }
+  }
+  return { summary: summary || prev.summary, agendaItems, issues, proposals, keyExchanges, coveredThroughTurn: newTurn };
+}
+
+// ---------- Closing ----------
+
+export function mockSatisfaction(state: MeetingState, p: Participant, tallies: ProposalTally[]): SatisfactionReport {
+  const init = state.initialStances?.[p.id]?.stance ?? "neutral";
+  const mine = state.minutes.proposals.map((pr) => pr.support[p.id]).filter(Boolean) as Stance[];
+  const avg = mine.length ? mine.reduce((a, s) => a + stanceToConsent(s), 0) / mine.length : 3;
+  const jitter = (hashString(p.id + "sat") % 21) - 10;
+  const score = Math.max(8, Math.min(96, Math.round(avg * 18 + 6 + jitter)));
+  const consent = (score >= 80 ? 5 : score >= 62 ? 4 : score >= 45 ? 3 : score >= 28 ? 2 : 1) as 1 | 2 | 3 | 4 | 5;
+  const to: Stance = consent >= 5 ? "strong_support" : consent === 4 ? "support" : consent === 3 ? "neutral" : consent === 2 ? "concern" : "oppose";
+  const role = roleOf(p);
+  const agreed = tallies.filter((t) => t.status === "agreed" || t.status === "conditionally_agreed").length;
+  return {
+    participantId: p.id,
+    score,
+    consent,
+    agreedPoints: [agreed ? `合意に至った${agreed}件の方向性は受け入れられる` : "議論の場が持てたこと", `${role?.interests[0] ?? "自分の関心"}が議題に載ったこと`],
+    disagreedPoints: consent <= 3 ? [`${role?.concerns[0] ?? "負担"}への手当てが十分でない`] : [],
+    remainingConcerns: [`${role?.concerns[1] ?? role?.concerns[0] ?? "実施後の運用"}はまだ不安`],
+    hopes: [`実施後に${role?.interests[0] ?? "状況"}を確認する場を設けてほしい`],
+    comment:
+      consent >= 4
+        ? "思ったより前に進んだと思う。細部はこれからだけど、納得しています。"
+        : consent === 3
+          ? "完全には納得していないけれど、受け入れられる範囲です。"
+          : "正直、自分の事情は十分に汲まれていない。このままでは持ち帰って説明しづらい。",
+    stanceShift: { from: init, to, reason: to === init ? "議論を聞いても基本的な考えは変わらなかった" : "他の参加者の事情を聞いて、考えが動いた" },
+  };
+}
+
+export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], tallies: ProposalTally[]): MeetingOutcome {
+  const type = getMeetingType(state.config.meetingTypeId);
+  const parts = state.config.participants;
+  let proposals = state.minutes.proposals;
+  if (!proposals.length) {
+    proposals = [
+      {
+        id: "final_1",
+        title: `${state.config.topic}について、関係者の協議を継続する`,
+        body: "具体案は出なかったが、論点を整理したうえで継続して協議する。",
+        proposedBy: state.config.facilitatorId,
+        kind: "decision",
+        status: "deferred",
+        support: {},
+        history: [],
+      },
+    ];
+  }
+  const byId = new Map(tallies.map((t) => [t.proposalId, t]));
+  const decisions = proposals.map((pr) => ({
+    ...pr,
+    status: byId.get(pr.id)?.status ?? "deferred",
+    conditions: pr.status === "conditionally_agreed" || byId.get(pr.id)?.status === "conditionally_agreed" ? ["実施後1年を目安に見直す", "負担が集中する立場への支援を併せて検討する"] : pr.conditions,
+  }));
+  const date = new Date(state.config.createdAt).toLocaleDateString("ja-JP");
+  return {
+    title: type.outputTitle,
+    executiveSummary: `「${state.config.topic}」について${parts.length}人で${state.turn}ターン協議した。${decisions.length}件の案を検討し、${decisions.filter((d) => d.status === "agreed" || d.status === "conditionally_agreed").length}件で一定の合意が得られた。残る論点は継続して協議する。`,
+    decisions,
+    landingZone: `各立場が最優先の利害を守りつつ、段階的な導入と定期的な見直しを条件に折り合う。負担が集中しやすい立場には支援を手当てし、推進側は導入のペースを緩めることで歩み寄った。`,
+    stakeholderClaims: parts.map((p) => ({
+      participantId: p.id,
+      claim: `${roleOf(p)?.interests[0] ?? "自分の暮らし"}を守りたい。`,
+      coreInterest: roleOf(p)?.concerns[0] ? `${roleOf(p)?.concerns[0]}を避けること` : "安心して暮らせること",
+    })),
+    keyExchanges: state.minutes.keyExchanges,
+    satisfaction: reports,
+    unresolvedIssues: [`${state.config.topic}の費用負担の配分`, "実施後の効果を誰がどう検証するか"],
+    nextSteps: ["論点を整理した資料を各自が持ち帰って確認する", "費用負担と検証方法について、次回までに案を用意する"],
+    minutesMarkdown: [
+      `# ${state.config.topic} ${type.name} 議事録`,
+      `- 日時：${date}`,
+      `- 出席者：${parts.map((p) => `${p.name}（${roleTitleOf(p)}）`).join("、")}`,
+      `- 議題：${state.config.topic}`,
+      `## 議事概要`,
+      state.minutes.summary || "（概要なし）",
+      `## 決定事項`,
+      ...decisions.map((d) => `- ${d.title}（${d.status}）`),
+      `## 今後の予定`,
+      `- 継続協議`,
+    ].join("\n"),
+  };
+}
