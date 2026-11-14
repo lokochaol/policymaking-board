@@ -1,17 +1,12 @@
 import type { MeetingState, Participant, PhaseDef, RoleTemplate, Stance, UsageTotals } from "@/lib/types";
 import { getCountry } from "@/data/countries";
-import { getRole } from "@/data/roles";
+import { getRole, registerCustomRoles } from "@/data/roles";
 
-const customRoleRegistry = new Map<string, RoleTemplate>();
+export { registerCustomRoles };
 
-/** Custom roles (ids start with "custom_") travel inside MeetingConfig; register them on entry to every engine call. */
-export function registerCustomRoles(roles: RoleTemplate[] | undefined): void {
-  for (const r of roles ?? []) customRoleRegistry.set(r.id, r);
-}
-
-/** Resolve a role: custom roles first, then the static catalog. */
+/** Resolve a role (static catalog, then custom roles registered from config.customRoles). */
 export function roleById(id: string): RoleTemplate | undefined {
-  return customRoleRegistry.get(id) ?? getRole(id);
+  return getRole(id);
 }
 
 export function hashString(s: string): number {
