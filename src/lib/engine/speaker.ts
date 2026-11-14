@@ -2,7 +2,7 @@ import type { MeetingState, Participant, PhaseDef, SpeakerOutput, UsageTotals } 
 import { callStructured, isMockMode } from "./client";
 import { effortFor } from "./models";
 import { mockSpeaker } from "./mock";
-import { speakerSystem, speakerUser } from "./prompts";
+import { speakerSystem, speakerUser, type SpeakerUserOpts } from "./prompts";
 import { speakerSchema } from "./schemas";
 
 export async function runSpeaker(
@@ -11,21 +11,22 @@ export async function runSpeaker(
   phase: PhaseDef,
   directive: string,
   meter: UsageTotals,
+  opts: SpeakerUserOpts = {},
 ): Promise<SpeakerOutput | null> {
-  if (isMockMode()) return mockSpeaker(state, p, phase);
+  if (isMockMode()) return mockSpeaker(state, p, phase, opts);
   const tier = state.config.modelTier;
   const r = await callStructured(
     "speaker",
     tier,
     speakerSystem(state, p),
-    speakerUser(state, phase, directive),
+    speakerUser(state, p, phase, directive, opts),
     speakerSchema,
     effortFor("speaker", tier),
     meter,
   );
   if (!r || !r.text.trim()) return null;
   return {
-    text: r.text,
+    text: r.text.length > 900 ? r.text.slice(0, 900) : r.text,
     innerThought: r.innerThought,
     stance: r.stance,
     addressedTo: r.addressedTo,

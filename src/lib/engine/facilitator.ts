@@ -14,9 +14,9 @@ export interface TurnCtx {
   counts: Record<string, number>;
 }
 
-/** Ids of the main speakers (excluding the facilitator's separate remark utterances), oldest first. */
+/** Ids of the speakers of kind:"speech" turns (facilitation remarks / chair-led turns excluded), oldest first. */
 function mainSpeakers(state: MeetingState): string[] {
-  return state.utterances.filter((u) => !u.id.endsWith("_f")).map((u) => u.speakerId);
+  return state.utterances.filter((u) => u.kind === "speech").map((u) => u.speakerId);
 }
 
 function eligible(state: MeetingState, ctx: TurnCtx, ps: Participant[]): Participant[] {
@@ -37,7 +37,7 @@ function leastSpoken(state: MeetingState, ctx: TurnCtx, ps: Participant[]): Part
 function pickRoundRobin(state: MeetingState, ctx: TurnCtx): Participant {
   const fac = state.config.facilitatorId;
   const spoken = new Set(
-    state.utterances.filter((u) => u.phaseId === ctx.phase.id && !u.id.endsWith("_f")).map((u) => u.speakerId),
+    state.utterances.filter((u) => u.phaseId === ctx.phase.id && u.kind === "speech").map((u) => u.speakerId),
   );
   const order = [...state.config.participants].sort(
     (a, b) => Number(a.id === fac) - Number(b.id === fac) || a.seatIndex - b.seatIndex,
@@ -92,7 +92,10 @@ export async function decideNext(state: MeetingState, ctx: TurnCtx, meter: Usage
 
   // Free discussion.
   const ps = state.config.participants;
-  const fallbackNext = leastSpoken(state, ctx, ps);
+  // The chair is outside the rotation: fairness (least-spoken / min) is computed over the others only.
+  const others = ps.filter((p) => p.id !== fac.id);
+  const rotation = others.length ? others : ps;
+  const fallbackNext = leastSpoken(state, ctx, rotation);
   let d: FacilitatorDecision | null = null;
   if (mock) {
     d = mockFacilitatorFree(state, ctx.phase, fallbackNext.id, first, ctx.phaseTurn, ctx.budget);
@@ -121,8 +124,9 @@ export async function decideNext(state: MeetingState, ctx: TurnCtx, meter: Usage
   let chosen = ps.find((p) => p.id === d!.nextSpeakerId);
   const allowed = eligible(state, ctx, ps);
   if (!chosen || !allowed.some((p) => p.id === chosen!.id)) chosen = fallbackNext;
-  const min = Math.min(...ps.map((p) => ctx.counts[p.id] ?? 0));
-  if ((ctx.counts[chosen.id] ?? 0) - min >= 3 && fallbackNext.id !== chosen.id) chosen = fallbackNext;
+  const min = Math.min(...rotation.map((p) => ctx.counts[p.id] ?? 0));
+  // Only an explicit LLM choice can put the chair on; other picks are kept fair.
+  if (chosen.id !== fac.id && (ctx.counts[chosen.id] ?? 0) - min >= 3 && fallbackNext.id !== chosen.id) chosen = fallbackNext;
   const canAdvance = ctx.phaseTurn + 1 >= Math.ceil(ctx.budget / 2);
   return { ...d, nextSpeakerId: chosen.id, advancePhase: d.advancePhase && canAdvance, endMeeting: false };
 }

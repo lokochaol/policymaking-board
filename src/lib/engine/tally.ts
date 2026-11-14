@@ -15,11 +15,10 @@ export interface ProposalTally {
   total: number;
   supportRate: number; // 0-1, (strong_support+support)/total
   blockers: string[]; // participant ids who oppose
+  /** The effective stance of every participant used for this tally (participant id -> stance). */
+  stances: Record<string, Stance>;
   note: string; // Japanese description for prompts / UI
 }
-
-const consentToStance = (c: number): Stance =>
-  c >= 5 ? "strong_support" : c === 4 ? "support" : c === 3 ? "neutral" : c === 2 ? "concern" : "oppose";
 
 /** Mechanical evaluation of the decision rule (never delegated to the LLM). */
 export function tallyProposals(
@@ -28,13 +27,15 @@ export function tallyProposals(
   rule: DecisionRule,
   reports: SatisfactionReport[] = [],
 ): ProposalTally[] {
-  const consentOf = new Map(reports.map((r) => [r.participantId, r.consent]));
+  const votesOf = new Map(reports.map((r) => [r.participantId, r.votes]));
   return proposals.map((pr) => {
     const counts = { strong_support: 0, support: 0, neutral: 0, concern: 0, oppose: 0 };
     const blockers: string[] = [];
+    const stances: Record<string, Stance> = {};
     for (const p of participants) {
-      const c = consentOf.get(p.id);
-      const s: Stance = pr.support[p.id] ?? (c !== undefined ? consentToStance(c) : "neutral");
+      // Final vote (satisfaction survey) > stance stated in the meeting > neutral. Overall consent is never used to fill gaps.
+      const s: Stance = votesOf.get(p.id)?.[pr.id] ?? pr.support[p.id] ?? "neutral";
+      stances[p.id] = s;
       counts[s]++;
       if (s === "oppose") blockers.push(p.id);
     }
@@ -70,7 +71,7 @@ export function tallyProposals(
     const note =
       `賛成${approve}（強く賛成${counts.strong_support}）・中立${counts.neutral}・懸念${counts.concern}・反対${counts.oppose}／${n}人、` +
       `賛成率${Math.round(rate * 100)}%。判定：${status}`;
-    return { proposalId: pr.id, status, counts, total: n, supportRate: rate, blockers, note };
+    return { proposalId: pr.id, status, counts, total: n, supportRate: rate, blockers, stances, note };
   });
 }
 

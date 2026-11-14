@@ -25,7 +25,8 @@ export async function runScribe(
     effortFor("scribe", tier),
     meter,
   );
-  if (!r) return { ...prev, coveredThroughTurn: newTurn };
+  // On failure keep the minutes (and coveredThroughTurn) unchanged so the next run covers these turns again.
+  if (!r) return prev;
   const ids = new Set(state.config.participants.map((p) => p.id));
   const uids = new Set(state.utterances.map((u) => u.id));
   const prevById = new Map(prev.proposals.map((p) => [p.id, p]));
@@ -41,9 +42,10 @@ export async function runScribe(
       proposedBy: old?.proposedBy ?? (ids.has(rp.proposedBy) ? rp.proposedBy : state.config.facilitatorId),
       kind: rp.kind,
       status: rp.status,
-      support: { ...(old?.support ?? {}), ...Object.fromEntries(rp.support.filter((s) => ids.has(s.participantId)).map((s) => [s.participantId, s.stance])) },
+      // Stances the speakers stated themselves win over the scribe's reading.
+      support: { ...Object.fromEntries(rp.support.filter((s) => ids.has(s.participantId)).map((s) => [s.participantId, s.stance])), ...(old?.support ?? {}) },
       conditions: rp.conditions.length ? rp.conditions : undefined,
-      history: old?.history ?? rp.history,
+      history: old?.history ?? [],
     });
   }
   for (const old of prev.proposals) if (!seen.has(old.id)) proposals.push(old); // never lose a proposal
