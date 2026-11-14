@@ -263,7 +263,7 @@ export interface Minutes {
   coveredThroughTurn: number;
 }
 
-export type MeetingStatus = "setup" | "running" | "paused" | "closing" | "finished" | "error";
+export type MeetingStatus = "setup" | "preparing" | "running" | "paused" | "closing" | "finished" | "error";
 
 export interface MeetingState {
   config: MeetingConfig;
@@ -277,6 +277,8 @@ export interface MeetingState {
   /** Directive from the facilitator for the next speaker. */
   pendingDirective?: FacilitatorDecision;
   outcome?: MeetingOutcome;
+  /** Pre-meeting research per participant id (filled during status "preparing"). */
+  research: Record<string, ResearchBrief>;
   /** Initial stance per participant (for before/after comparison). */
   initialStances: Record<string, { stance: Stance; summary: string }>;
   usage: UsageTotals;
@@ -288,6 +290,34 @@ export interface UsageTotals {
   outputTokens: number;
   cacheReadTokens: number;
   estimatedCostUsd: number;
+}
+
+// ---------- Pre-meeting research ----------
+
+export interface ResearchSource {
+  title: string;
+  url: string;
+}
+
+/**
+ * Each participant researches the topic *in their own way* before the meeting
+ * (web search; method is never prescribed). This brief is their private notes.
+ */
+export interface ResearchBrief {
+  participantId: string;
+  status: "pending" | "researching" | "done" | "failed";
+  /** Search queries the participant actually ran (shown live in the UI). */
+  queries: string[];
+  /** How they went about it, in their own words (e.g. "SNSで同級生の声を見た"). */
+  approach: string;
+  /** Their notes, in their own voice. */
+  summary: string;
+  keyFacts: { fact: string; source?: ResearchSource }[];
+  /** Arguments / evidence they plan to bring to the table. */
+  talkingPoints: string[];
+  /** Questions they want to ask others. */
+  questionsToRaise: string[];
+  sources: ResearchSource[];
 }
 
 // ---------- Engine I/O ----------
