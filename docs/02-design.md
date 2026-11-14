@@ -56,8 +56,11 @@ POST /api/meeting/step
           status: MeetingStatus;           // 終了判定で "closing" になる
           initialStances?: ...;            // 初回ターンだけ
           usage: UsageTotals }             // 累計
-POST /api/meeting/close
+POST /api/meeting/close/satisfaction
   req:  { state: MeetingState }
+  res:  { reports: SatisfactionReport[]; usage: UsageTotals }   // 累計。クライアントは state.closingReports に保存
+POST /api/meeting/close
+  req:  { state: MeetingState }   // closingReports を含む（無ければサーバーで生成）
   res:  { outcome: MeetingOutcome; usage: UsageTotals }
 ```
 クライアントは status が running の間 step を繰り返し、closing になったら close を呼んで結果画面へ移る。速度設定（待ち時間 0〜3秒）と一時停止をUIで操作できる。
@@ -122,7 +125,7 @@ POST /api/stakeholders/create-role
 - effort：speaker と scribe は `low`、facilitator は `low`（premium は `medium`）、closing は `high`。`output_config: { effort, format }`
 - thinking は指定しない（各モデルの既定の adaptive）。Opus 5.5 と Sonnet 5.5 では `disabled` を送ると400になる
 - 料金表（USD/100万トークン、入力/出力）：Opus 5.5 は 4/20、Sonnet 5.5 は 2/10、Haiku 5.5 は 0.1/0.5。キャッシュ読み込みは入力の約1/10で概算する
-- **プロンプトキャッシュ**：system は「固定の会議ルール＋人物設定」だけにして、変動する内容（議事要旨・直近の発言）は messages 側に置く。リクエストの最上位に `cache_control: {type:"ephemeral"}` を付ける。system に日時やIDを入れない
+- **プロンプトキャッシュ**：system は「固定の会議ルール＋人物設定」だけにして、変動する内容（議事要旨・直近の発言）は messages 側に置く。system をブロックに分け、`[会議の共通部分]`（全話者で共通）→ `[人物＋事前調査]` の順に並べ、それぞれのブロックに `cache_control: {type:"ephemeral"}` を付ける。最上位の cache_control は使わない（毎回変わる user メッセージの後ろにブレークポイントが付き、書き込み料金だけかかるため）。調査ループのように会話が伸びるリクエストだけ、最上位の cache_control を使う。system に日時やIDを入れない
 - エラー：`Anthropic.RateLimitError` と 5xx は1回だけ待って再試行する（SDK既定の再試行に任せてもよい）。`stop_reason === "refusal"` や parse 失敗のときは、その話者の発言を「（発言を控えた）」にして会議を続ける。会議は止めない
 - `messages.parse` の `parsed_output` が null の場合も同じフォールバックにする
 

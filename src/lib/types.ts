@@ -306,6 +306,8 @@ export interface MeetingState {
   /** Directive from the facilitator for the next speaker. */
   pendingDirective?: FacilitatorDecision;
   outcome?: MeetingOutcome;
+  /** Satisfaction reports collected in close step 1 (persisted so a retry of step 2 is cheap). */
+  closingReports?: SatisfactionReport[];
   /** Pre-meeting research per participant id (filled during status "preparing"). */
   research: Record<string, ResearchBrief>;
   /** Initial stance per participant (for before/after comparison). */
@@ -390,6 +392,8 @@ export interface SatisfactionReport {
   comment: string;
   /** How their stance moved compared with the start. */
   stanceShift: { from: Stance; to: Stance; reason: string };
+  /** Final vote on each proposal (proposal id -> stance). Used by the tally. */
+  votes?: Record<string, Stance>;
 }
 
 export interface MeetingOutcome {
