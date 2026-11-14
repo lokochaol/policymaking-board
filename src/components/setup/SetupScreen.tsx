@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { UsageTotals, DecisionRule, DisclosureLevel, MeetingConfig, MeetingTypeId, ModelTier, Participant, RoleTemplate } from "@/lib/types";
 import { loadCustomRoles } from "@/lib/customRoles";
 import StakeholderDiscovery from "./StakeholderDiscovery";
-import { MEETING_TYPES, getMeetingType } from "@/data/meetingTypes";
+import { MEETING_TYPES, defaultDurationMinutes, getMeetingType } from "@/data/meetingTypes";
 import { COUNTRIES } from "@/data/countries";
 import { createParticipant, rerollParticipant } from "@/lib/participants";
 import { emptyUsage, newId, useMeetingStore } from "@/store/meetingStore";
@@ -40,7 +40,7 @@ export function SetupScreen() {
   const type = getMeetingType(typeId);
   const [disclosure, setDisclosure] = useState<DisclosureLevel>(type.disclosure);
   const [decisionRule, setDecisionRule] = useState<DecisionRule>(type.decisionRule);
-  const [lengthFactor, setLengthFactor] = useState(1);
+  const [durationMinutes, setDurationMinutes] = useState(defaultDurationMinutes[MEETING_TYPES[0].id]);
   const [modelTier, setModelTier] = useState<ModelTier>("standard");
 
   const [customRoles, setCustomRoles] = useState<RoleTemplate[]>([]);
@@ -66,6 +66,7 @@ export function SetupScreen() {
     setTypeId(id);
     setDisclosure(t.disclosure);
     setDecisionRule(t.decisionRule);
+    setDurationMinutes(defaultDurationMinutes[id]);
   };
 
   const addParticipant = useCallback(
@@ -130,7 +131,7 @@ export function SetupScreen() {
       participants,
       facilitatorId: facilitator.id,
       modelTier,
-      lengthFactor,
+      durationMinutes,
       customRoles: customRoles.filter((r) => participants.some((p) => p.roleId === r.id)).slice(0, 20),
     };
     const id = createMeeting(config, spend.current);
@@ -219,11 +220,11 @@ export function SetupScreen() {
             participantCount={participants.length}
             disclosure={disclosure}
             decisionRule={decisionRule}
-            lengthFactor={lengthFactor}
+            durationMinutes={durationMinutes}
             modelTier={modelTier}
             onDisclosure={setDisclosure}
             onDecisionRule={setDecisionRule}
-            onLength={setLengthFactor}
+            onDuration={setDurationMinutes}
             onTier={setModelTier}
           />
         </div>

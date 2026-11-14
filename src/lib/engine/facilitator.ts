@@ -9,9 +9,14 @@ import { facilitatorOf, isFacilitatorLed, nameOf } from "./util";
 export interface TurnCtx {
   phase: PhaseDef;
   phaseIndex: number;
-  budget: number;
+  /** Hard cap on turns in this phase. */
+  cap: number;
   phaseTurn: number;
   counts: Record<string, number>;
+  plannedMin: number;
+  phaseElapsedMin: number;
+  /** Set when the code just moved the meeting on because of time. */
+  timeNote?: string;
 }
 
 /** Ids of the speakers of kind:"speech" turns (facilitation remarks / chair-led turns excluded), oldest first. */
@@ -98,7 +103,7 @@ export async function decideNext(state: MeetingState, ctx: TurnCtx, meter: Usage
   const fallbackNext = leastSpoken(state, ctx, rotation);
   let d: FacilitatorDecision | null = null;
   if (mock) {
-    d = mockFacilitatorFree(state, ctx.phase, fallbackNext.id, first, ctx.phaseTurn, ctx.budget);
+    d = mockFacilitatorFree(state, ctx.phase, fallbackNext.id, first, ctx.phaseElapsedMin, ctx.plannedMin);
   } else {
     d = await callStructured(
       "facilitator",
@@ -127,6 +132,6 @@ export async function decideNext(state: MeetingState, ctx: TurnCtx, meter: Usage
   const min = Math.min(...rotation.map((p) => ctx.counts[p.id] ?? 0));
   // Only an explicit LLM choice can put the chair on; other picks are kept fair.
   if (chosen.id !== fac.id && (ctx.counts[chosen.id] ?? 0) - min >= 3 && fallbackNext.id !== chosen.id) chosen = fallbackNext;
-  const canAdvance = ctx.phaseTurn + 1 >= Math.ceil(ctx.budget / 2);
+  const canAdvance = ctx.phaseElapsedMin >= ctx.plannedMin * 0.4 && ctx.phaseTurn + 1 >= 2;
   return { ...d, nextSpeakerId: chosen.id, advancePhase: d.advancePhase && canAdvance, endMeeting: false };
 }

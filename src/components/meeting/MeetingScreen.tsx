@@ -114,7 +114,7 @@ export function MeetingScreen({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-screen flex-col pb-44 sm:pb-24">
-      <TopBar m={m} />
+      <TopBar m={m} shownElapsed={shownUtts.length ? shownUtts[shownUtts.length - 1].atMinute + shownUtts[shownUtts.length - 1].durationMin : 0} />
       <StorageWarning />
 
       {preparing && (

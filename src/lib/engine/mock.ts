@@ -1,10 +1,12 @@
-import { decisionsSection } from "./minutesFormat";
+import { decisionsSection, continuationSection } from "./minutesFormat";
+import { planSummaryText, timeStatus } from "./clock";
 import type {
   FacilitatorDecision,
   KeyExchange,
   MeetingOutcome,
   MeetingState,
   Minutes,
+  Continuation,
   Participant,
   PhaseDef,
   Proposal,
@@ -107,19 +109,19 @@ export function mockFacilitatorFree(
   phase: PhaseDef,
   nextId: string,
   first: boolean,
-  phaseTurn: number,
-  budget: number,
+  phaseElapsedMin: number,
+  plannedMin: number,
 ): FacilitatorDecision {
   const lite = mockFacilitatorLite(state, phase, nextId, first);
   const lastSpeech = [...state.utterances].reverse().find((u) => u.kind === "speech");
   const target = lastSpeech ? nameOf(state, lastSpeech.speakerId) : "";
   return {
     nextSpeakerId: nextId,
-    facilitatorRemark: phaseTurn % 3 === 1 ? "" : lite.facilitatorRemark,
+    facilitatorRemark: state.turn % 3 === 1 ? "" : lite.facilitatorRemark,
     prompt: target
       ? `${target}さんの直前の発言に応じて、賛成か懸念かを具体的に述べてください。`
       : lite.prompt,
-    advancePhase: phaseTurn + 1 >= Math.ceil(budget * 0.8),
+    advancePhase: phaseElapsedMin >= plannedMin * 0.85,
     endMeeting: false,
     innerThought: lite.innerThought,
   };
@@ -158,6 +160,26 @@ const THOUGHT: Record<Stance, string> = {
   oppose: "ここで譲ると組織に戻って説明がつかない。見返りがなければ折れられない。",
 };
 
+function mockChairText(state: MeetingState, p: Participant, phase: PhaseDef, base: string, opts: SpeakerUserOpts): string {
+  const phases = getMeetingType(state.config.meetingTypeId).phases;
+  const co = state.config.carryOver;
+  const timeUp = !!state.clock?.timeUp;
+  const note = opts.timeNote ?? "";
+  if (state.phaseIndex === 0) {
+    const plan = state.clock ? planSummaryText(state.config.durationMinutes, state.clock, phases) : "";
+    const recap = co
+      ? `第${co.sessionNumber}回です。前回は「${co.continuation.reachedPoint.slice(0, 60)}」まで進みました。今回は「${co.continuation.nextStartPoint.slice(0, 60)}」から始めます。`
+      : "";
+    return `${state.config.topic}について、${phase.name}を始めます。${recap}${plan}`;
+  }
+  if (state.phaseIndex === phases.length - 1) {
+    return timeUp
+      ? `${note}本日はここまでとします。まとまった点は確認できましたが、残った論点は持ち越しです。次回は、各立場の費用負担の考え方の整理から始めましょう。`
+      : `${note}本日の議論はここまでとします。確認できた方向性と、残る課題を踏まえて、今後の進め方を詰めていきましょう。ありがとうございました。`;
+  }
+  return note + base;
+}
+
 export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef, opts: SpeakerUserOpts = {}): SpeakerOutput {
   const role = roleOf(state, p);
   const n = state.config.participants.length;
@@ -178,6 +200,11 @@ export function mockSpeaker(state: MeetingState, p: Participant, phase: PhaseDef
       .replaceAll("{concern}", role?.concerns[hashString(p.id + "k" + state.turn) % (role?.concerns.length || 1)] ?? "負担")
       .replaceAll("{other}", other.name);
   let text = fill(pick(TEXT[stance], `${p.id}${state.turn}`));
+  if (opts.ledByChair) text = mockChairText(state, p, phase, text, opts);
+  else if (state.clock) {
+    const st = timeStatus(state.clock, state.config.durationMinutes, state.phaseIndex);
+    if (st === "押している" || st === "超過") text = text.split("。")[0] + "。";
+  }
   const ref = state.research?.[p.id];
   if (ref?.status === "done" && state.turn % 4 === 0 && ref.keyFacts[0]) text += `調べたところ、${ref.keyFacts[0].fact}`;
   const innerThought = role?.privateConcerns[0] ? `${THOUGHT[stance]}（${role.privateConcerns[0]}）` : THOUGHT[stance];
@@ -337,6 +364,35 @@ export function mockSatisfaction(state: MeetingState, p: Participant, tallies: P
   };
 }
 
+export function mockContinuation(state: MeetingState, reports: SatisfactionReport[], decisions: Proposal[], unresolved: string[]): Continuation {
+  const timeUp = !!state.clock?.timeUp;
+  const ok = decisions.filter((d) => d.status === "agreed" || d.status === "conditionally_agreed");
+  const open = decisions.filter((d) => !(d.status === "agreed" || d.status === "conditionally_agreed"));
+  const convergence: Continuation["convergence"] = timeUp
+    ? "not_converged"
+    : open.length === 0 && decisions.length > 0
+      ? "converged"
+      : ok.length > 0
+        ? "partially"
+        : "not_converged";
+  const dissent = reports.filter((r) => r.consent <= 2).slice(0, 3);
+  return {
+    convergence,
+    reachedPoint: ok.length
+      ? `${decisions.length}件の案のうち${ok.length}件で方向性が一致した。${open.length ? `残り${open.length}件は意見が分かれたまま。` : ""}`
+      : `各立場の主張と利害は出そろったが、案としての合意には届かなかった。`,
+    agreedSoFar: ok.map((d) => d.title),
+    openIssues: [...open.map((d) => d.title), ...unresolved].slice(0, 6),
+    nextStartPoint: open[0] ? `「${open[0].title}」をめぐる対立点の整理から始める。` : "合意した内容の実施条件の確認から始める。",
+    nextAgenda: [...open.slice(0, 3).map((d) => `「${d.title}」の条件と代替案`), "費用負担と検証方法の案"].slice(0, 4),
+    homework: dissent.map((r) => ({
+      participantId: r.participantId,
+      task: r.remainingConcerns[0] ? `「${r.remainingConcerns[0]}」を解消する具体案を用意する` : "譲れる線と譲れない線を整理してくる",
+    })),
+    timeUp,
+  };
+}
+
 export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], tallies: ProposalTally[]): MeetingOutcome {
   const type = getMeetingType(state.config.meetingTypeId);
   const parts = state.config.participants;
@@ -362,6 +418,8 @@ export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], 
     support: byId.get(pr.id)?.stances ?? pr.support,
     conditions: pr.status === "conditionally_agreed" || byId.get(pr.id)?.status === "conditionally_agreed" ? ["実施後1年を目安に見直す", "負担が集中する立場への支援を併せて検討する"] : pr.conditions,
   }));
+  const unresolved = [`${state.config.topic}の費用負担の配分`, "実施後の効果を誰がどう検証するか"];
+  const continuation = mockContinuation(state, reports, decisions, unresolved);
   const date = new Date(state.config.createdAt).toLocaleDateString("ja-JP");
   return {
     title: type.outputTitle,
@@ -375,7 +433,8 @@ export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], 
     })),
     keyExchanges: state.minutes.keyExchanges,
     satisfaction: reports,
-    unresolvedIssues: [`${state.config.topic}の費用負担の配分`, "実施後の効果を誰がどう検証するか"],
+    unresolvedIssues: unresolved,
+    continuation,
     nextSteps: ["論点を整理した資料を各自が持ち帰って確認する", "費用負担と検証方法について、次回までに案を用意する"],
     minutesMarkdown: [
       `# ${state.config.topic} ${type.name} 議事録`,
@@ -385,6 +444,7 @@ export function mockOutcome(state: MeetingState, reports: SatisfactionReport[], 
       `## 議事概要`,
       state.minutes.summary || "（概要なし）",
       decisionsSection(decisions),
+      continuationSection(continuation, (id) => nameOf(state, id)),
       `## 今後の予定`,
       `- 継続協議`,
     ].join("\n"),

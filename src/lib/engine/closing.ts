@@ -1,5 +1,6 @@
-import { withDecisionsSection } from "./minutesFormat";
+import { withContinuationSection, withDecisionsSection } from "./minutesFormat";
 import type {
+  Continuation,
   KeyExchange,
   MeetingOutcome,
   MeetingState,
@@ -14,6 +15,7 @@ import { effortFor } from "./models";
 import { mockOutcome, mockSatisfaction } from "./mock";
 import { CLOSING_SYSTEM, closingUser, satisfactionSystem, satisfactionUser } from "./prompts";
 import { closingSchema, satisfactionSchema } from "./schemas";
+import { nameOf as nameOfId } from "./util";
 import { tallyProposals, type ProposalTally } from "./tally";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -119,6 +121,18 @@ export async function runClosing(
     utteranceIds: k.utteranceIds.filter((u) => uids.has(u)),
     participantIds: k.participantIds.filter((p) => ids.has(p)),
   }));
+  const timeUp = !!state.clock?.timeUp;
+  const c = r.continuation;
+  const continuation: Continuation = {
+    convergence: timeUp && c.convergence === "converged" ? "partially" : c.convergence,
+    reachedPoint: c.reachedPoint,
+    agreedSoFar: c.agreedSoFar,
+    openIssues: c.openIssues,
+    nextStartPoint: c.nextStartPoint,
+    nextAgenda: c.nextAgenda,
+    homework: c.homework.filter((h) => ids.has(h.participantId)),
+    timeUp,
+  };
   const outcome: MeetingOutcome = {
     title: r.title,
     executiveSummary: r.executiveSummary,
@@ -129,8 +143,10 @@ export async function runClosing(
     satisfaction: reports,
     unresolvedIssues: r.unresolvedIssues,
     nextSteps: r.nextSteps,
-    minutesMarkdown: withDecisionsSection(r.minutesMarkdown, decisions),
+    continuation,
+    minutesMarkdown: "",
   };
+  outcome.minutesMarkdown = withContinuationSection(withDecisionsSection(r.minutesMarkdown, decisions), continuation, (id) => nameOfId(state, id));
   return { outcome, degraded: false };
 }
 

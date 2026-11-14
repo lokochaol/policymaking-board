@@ -5,6 +5,7 @@ import type { MeetingState, Participant, Proposal, Stance, Utterance } from "@/l
 import { getRole } from "@/data/roles";
 import { Badge, EmptyState, PersonAvatar, ProposalStatusBadge, StanceDot, StanceLegend, Tabs } from "@/components/ui";
 import { Icon } from "@/components/ui/icons";
+import { formatClock } from "@/lib/engine/clock";
 import { ResearchBriefCard } from "@/components/ui/ResearchBriefCard";
 import { PROPOSAL_KIND_LABEL, STANCES, STANCE_LABEL } from "@/components/ui/labels";
 import { TONE_SURFACE, TONE_TEXT, exchangeKindStyle, stanceStyle } from "@/components/ui/semantic";
@@ -49,6 +50,11 @@ function Transcript({ utterances, pmap, focusId, stanceByUtt }: { utterances: Ut
                   </Badge>
                 )}
                 {u.stance && <StanceDot stance={u.stance} withLabel />}
+                {typeof u.atMinute === "number" && (
+                  <time className="ml-auto text-[11px] tabular-nums text-ink-3" title="開会からの時間">
+                    {formatClock(u.atMinute)}
+                  </time>
+                )}
               </p>
               <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed">{u.text}</p>
               {u.innerThought && (

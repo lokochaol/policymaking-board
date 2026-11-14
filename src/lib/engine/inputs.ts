@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { MeetingState } from "@/lib/types";
 import { CATEGORY_LABELS } from "@/data/roles";
 import { ACCESSORIES, OUTFITS } from "./createRole";
+import { getMeetingType } from "@/data/meetingTypes";
+import { withClock } from "./clock";
 import { stanceEnum, proposalKindEnum, proposalStatusEnum, keyExchangeKindEnum } from "./schemas";
 
 const str = (max: number) => z.string().max(max);
@@ -59,6 +61,25 @@ const participantSchema = z.object({
   isFacilitator: z.boolean(),
 });
 
+const continuationInput = z.object({
+  convergence: z.enum(["converged", "partially", "not_converged"]),
+  reachedPoint: str(1500),
+  agreedSoFar: strs(30, 600),
+  openIssues: strs(30, 600),
+  nextStartPoint: str(1500),
+  nextAgenda: strs(20, 600),
+  homework: z.array(z.object({ participantId: str(100), task: str(600) })).max(32),
+  timeUp: z.boolean(),
+});
+
+const carryOverSchema = z.object({
+  previousMeetingId: str(100),
+  sessionNumber: z.number().int().min(2).max(50),
+  previousSummary: str(4000),
+  continuation: continuationInput,
+  previousDecisions: z.array(z.object({ title: str(300), status: proposalStatusEnum })).max(40),
+});
+
 const configSchema = z.object({
   id: str(100),
   createdAt: str(64),
@@ -70,13 +91,17 @@ const configSchema = z.object({
   participants: z.array(participantSchema).min(2).max(16),
   facilitatorId: str(100),
   modelTier: tierEnum,
-  lengthFactor: z.union([z.literal(0.5), z.literal(1), z.literal(2)]),
+  // Saved meetings from before the clock existed have no duration: asState() treats them as 60 minutes.
+  durationMinutes: z.union([z.literal(15), z.literal(30), z.literal(60), z.literal(90), z.literal(120)]).optional(),
+  carryOver: carryOverSchema.optional(),
   customRoles: customRolesSchema,
 });
 
 const utteranceSchema = z.object({
   id: str(60),
   turn: z.number().int(),
+  atMinute: z.number().min(0).max(100000).optional(),
+  durationMin: z.number().min(0).max(1000).optional(),
   phaseId: str(60),
   speakerId: str(100),
   kind: z.enum(["speech", "facilitation"]),
@@ -163,6 +188,15 @@ export const stateSchema = z.object({
   phaseIndex: z.number().int().min(0).max(60),
   turn: z.number().int().min(0).max(5000),
   phaseTurn: z.number().int().min(0).max(5000),
+  clock: z
+    .object({
+      elapsedMin: z.number().min(0).max(100000),
+      plan: z.array(z.object({ phaseId: str(60), plannedMin: z.number().min(0).max(1000) })).max(60),
+      phaseStartedAtMin: z.number().min(0).max(100000),
+      reserveMin: z.number().min(0).max(1000),
+      timeUp: z.boolean().optional(),
+    })
+    .optional(),
   utterances: z.array(utteranceSchema).max(2000),
   minutes: minutesSchema,
   pendingDirective: z
@@ -210,5 +244,6 @@ export const createRoleBodySchema = z.object({
 
 /** The parsed state is structurally a MeetingState (outcome is dropped: the server never needs it). */
 export function asState(s: z.infer<typeof stateSchema>): MeetingState {
-  return s as unknown as MeetingState;
+  const raw = s as unknown as MeetingState;
+  return withClock(raw, getMeetingType(raw.config.meetingTypeId));
 }

@@ -4,6 +4,7 @@
 import { createParticipant } from "../src/lib/participants";
 import { getMeetingType } from "../src/data/meetingTypes";
 import { buildParams } from "../src/lib/engine/client";
+import { createInitialClock } from "../src/lib/engine/clock";
 import { speakerSystem, speakerUser, facilitatorSystem, facilitatorUser, satisfactionSystem } from "../src/lib/engine/prompts";
 import { speakerSchema, facilitatorSchema, satisfactionSchema } from "../src/lib/engine/schemas";
 import type { MeetingState } from "../src/lib/types";
@@ -15,9 +16,10 @@ const state: MeetingState = {
   config: {
     id: "inspect", createdAt: new Date().toISOString(), topic: "高校の部活動の地域移行", meetingTypeId: type.id,
     disclosure: type.disclosure, decisionRule: type.decisionRule, participants: ps, facilitatorId: ps[1].id,
-    modelTier: "standard", lengthFactor: 1, customRoles: [],
+    modelTier: "standard", durationMinutes: 60, customRoles: [],
   },
   status: "running", phaseIndex: 3, turn: 12, phaseTurn: 2, utterances: [],
+  clock: { ...createInitialClock({ durationMinutes: 60, participants: ps }, type), elapsedMin: 28, phaseStartedAtMin: 20 },
   minutes: { summary: "（要旨）", agendaItems: [], issues: [], proposals: [], keyExchanges: [], coveredThroughTurn: 0 },
   research: {}, initialStances: {}, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estimatedCostUsd: 0 },
 };
@@ -40,7 +42,7 @@ function show(label: string, params: ReturnType<typeof buildParams>) {
 
 show("speaker", buildParams("speaker", "standard", speakerSystem(state, ps[0]), speakerUser(state, ps[0], phase, "指示"), speakerSchema, "low"));
 show("speaker (other person: block 0 identical => shared cache hit)", buildParams("speaker", "standard", speakerSystem(state, ps[2]), speakerUser(state, ps[2], phase, "指示"), speakerSchema, "low"));
-show("facilitator", buildParams("facilitator", "standard", facilitatorSystem(state, ps[1]), facilitatorUser(state, { phase, phaseIndex: 3, budget: 8, phaseTurn: 2, counts: {} }), facilitatorSchema, "low"));
+show("facilitator", buildParams("facilitator", "standard", facilitatorSystem(state, ps[1]), facilitatorUser(state, { phase, phaseIndex: 3, cap: 40, phaseTurn: 2, counts: {}, plannedMin: 15, phaseElapsedMin: 8 }), facilitatorSchema, "low"));
 show("satisfaction", buildParams("satisfaction", "standard", satisfactionSystem(state, ps[0]), "アンケート", satisfactionSchema, "low"));
 const a = speakerSystem(state, ps[0]);
 const b = speakerSystem(state, ps[2]);

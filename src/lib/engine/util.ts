@@ -1,6 +1,7 @@
 import type { MeetingState, Participant, PhaseDef, RoleTemplate, Stance, UsageTotals } from "@/lib/types";
 import { getCountry } from "@/data/countries";
 import { ROLES } from "@/data/roles";
+import { MAX_PHASE_TURNS } from "./clock";
 
 /** Resolves a role id to its template. Built per request from the static catalog + that request's custom roles. */
 export type RoleResolver = (id: string) => RoleTemplate | undefined;
@@ -71,10 +72,11 @@ export function facilitatorOf(state: MeetingState): Participant {
   return ps.find((p) => p.id === state.config.facilitatorId) ?? ps[0];
 }
 
-/** Nominal budget for a phase, scaled by lengthFactor. Round-robin phases give everyone one turn. */
-export function phaseBudget(phase: PhaseDef, participantCount: number, lengthFactor: number): number {
+/** Hard cap on turns in a phase: round-robin = everyone once, short led phases = their budget, free phases = safety cap. */
+export function phaseCap(phase: PhaseDef, participantCount: number): number {
   if (phase.roundRobin) return Math.max(1, participantCount);
-  return Math.max(1, Math.round(phase.turnBudget * lengthFactor));
+  if (phase.turnBudget <= 2) return phase.turnBudget;
+  return MAX_PHASE_TURNS;
 }
 
 /** Short non-round-robin phases open with the facilitator speaking (explanation / summary / draft / closing). */

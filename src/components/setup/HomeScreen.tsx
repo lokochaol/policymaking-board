@@ -19,6 +19,28 @@ function safeType(m: MeetingState) {
   }
 }
 
+/** Meetings linked by carryOver form a series (第1回, 第2回…). Groups are ordered by their newest session; sessions within by number. */
+function groupSeries(list: MeetingState[]): MeetingState[][] {
+  const byId = new Map(list.map((m) => [m.config.id, m]));
+  const rootOf = (m: MeetingState): string => {
+    let cur = m;
+    const seen = new Set<string>();
+    while (cur.config.carryOver && !seen.has(cur.config.id)) {
+      seen.add(cur.config.id);
+      const prev = byId.get(cur.config.carryOver.previousMeetingId);
+      if (!prev) return cur.config.carryOver.previousMeetingId;
+      cur = prev;
+    }
+    return cur.config.id;
+  };
+  const groups = new Map<string, MeetingState[]>();
+  for (const m of list) {
+    const r = rootOf(m);
+    groups.set(r, [...(groups.get(r) ?? []), m]);
+  }
+  return [...groups.values()].map((g) => g.sort((a, b) => (a.config.carryOver?.sessionNumber ?? 1) - (b.config.carryOver?.sessionNumber ?? 1)));
+}
+
 export function HomeScreen() {
   const hydrated = useMeetingStore((s) => s.hydrated);
   const meetings = useMeetingStore((s) => s.meetings);
@@ -27,6 +49,7 @@ export function HomeScreen() {
     useMeetingStore.getState().hydrate();
   }, []);
   const list = Object.values(meetings).sort((a, b) => b.config.createdAt.localeCompare(a.config.createdAt));
+  const groups = groupSeries(list);
 
   return (
     <>
@@ -60,37 +83,53 @@ export function HomeScreen() {
             <div className="rounded-md border border-dashed border-line px-4 py-12 text-center text-sm text-ink-2">まだ会議はありません。最初の会議を開いてみましょう。</div>
           ) : (
             <ul className="space-y-3">
-              {list.map((m) => {
-                const t = safeType(m);
-                const st = meetingStatusStyle(m.status);
-                const href = m.status === "finished" ? `/meeting/${m.config.id}/results` : `/meeting/${m.config.id}`;
-                return (
-                  <li key={m.config.id}>
-                    <Card className="flex items-center gap-3 p-4 transition-colors hover:border-ink-3">
-                      <Link href={href} className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-ink">{m.config.topic}</p>
-                        <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink-2">
-                          <span>{t?.name ?? m.config.meetingTypeId}</span>
-                          <DisclosureBadge level={m.config.disclosure} />
-                          <Badge tone={st.tone}>{st.label}</Badge>
-                          <span className="tabular-nums">{m.config.participants.length}人</span>
-                          <span className="tabular-nums">{formatDate(m.config.createdAt)}</span>
-                        </p>
-                      </Link>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        aria-label="この会議を削除"
-                        onClick={() => {
-                          if (confirm("この会議の記録を削除しますか？")) deleteMeeting(m.config.id);
-                        }}
-                      >
-                        削除
-                      </Button>
-                    </Card>
-                  </li>
-                );
-              })}
+              {groups.map((g) => (
+                <li key={g[0].config.id}>
+                  {g.length > 1 && (
+                    <p className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-2">
+                      <Icon name="link" size={12} /> シリーズ（全<span className="tabular-nums">{g.length}</span>回）
+                    </p>
+                  )}
+                  <ul className={g.length > 1 ? "space-y-2 border-l border-line pl-3" : ""}>
+                    {g.map((m) => {
+                      const t = safeType(m);
+                      const st = meetingStatusStyle(m.status);
+                      const href = m.status === "finished" ? `/meeting/${m.config.id}/results` : `/meeting/${m.config.id}`;
+                      const session = m.config.carryOver?.sessionNumber ?? (g.length > 1 ? 1 : undefined);
+                      return (
+                        <li key={m.config.id}>
+                          <Card className="flex items-center gap-3 p-4 transition-colors hover:border-ink-3">
+                            <Link href={href} className="min-w-0 flex-1">
+                              <p className="truncate font-medium text-ink">
+                                {session && <span className="mr-2 tabular-nums">第{session}回</span>}
+                                {m.config.topic}
+                              </p>
+                              <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink-2">
+                                <span>{t?.name ?? m.config.meetingTypeId}</span>
+                                <DisclosureBadge level={m.config.disclosure} />
+                                <Badge tone={st.tone}>{st.label}</Badge>
+                                <span className="tabular-nums">{m.config.participants.length}人</span>
+                                <span className="tabular-nums">{m.config.durationMinutes ?? 60}分</span>
+                                <span className="tabular-nums">{formatDate(m.config.createdAt)}</span>
+                              </p>
+                            </Link>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              aria-label="この会議を削除"
+                              onClick={() => {
+                                if (confirm("この会議の記録を削除しますか？")) deleteMeeting(m.config.id);
+                              }}
+                            >
+                              削除
+                            </Button>
+                          </Card>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              ))}
             </ul>
           )}
         </section>

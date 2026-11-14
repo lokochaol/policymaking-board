@@ -101,6 +101,16 @@ export const satisfactionSchema = z.object({
 });
 export type SatisfactionRaw = z.infer<typeof satisfactionSchema>;
 
+export const continuationSchema = z.object({
+  convergence: z.enum(["converged", "partially", "not_converged"]),
+  reachedPoint: z.string(),
+  agreedSoFar: z.array(z.string()),
+  openIssues: z.array(z.string()),
+  nextStartPoint: z.string(),
+  nextAgenda: z.array(z.string()),
+  homework: z.array(z.object({ participantId: z.string(), task: z.string() })),
+});
+
 export const closingSchema = z.object({
   title: z.string(),
   executiveSummary: z.string(),
@@ -110,6 +120,7 @@ export const closingSchema = z.object({
   keyExchanges: z.array(keyExchangeSchema),
   unresolvedIssues: z.array(z.string()),
   nextSteps: z.array(z.string()),
+  continuation: continuationSchema,
   minutesMarkdown: z.string(),
 });
 export type ClosingRaw = z.infer<typeof closingSchema>;

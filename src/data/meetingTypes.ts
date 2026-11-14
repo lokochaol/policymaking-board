@@ -214,6 +214,20 @@ export const MEETING_TYPES: MeetingType[] = [
   },
 ];
 
+/** Default 会議時間 (minutes) per meeting type (docs/02-design.md §10.1). */
+export const defaultDurationMinutes: Record<MeetingTypeId, number> = {
+  nemawashi: 30,
+  negotiation: 60,
+  council: 90,
+  study_group: 90,
+  roundtable: 90,
+  assembly_committee: 90,
+  cabinet: 90,
+  hearing: 120,
+  town_meeting: 120,
+  citizens_assembly: 120,
+};
+
 export function getMeetingType(id: MeetingTypeId): MeetingType {
   const t = MEETING_TYPES.find((m) => m.id === id);
   if (!t) throw new Error(`unknown meeting type: ${id}`);

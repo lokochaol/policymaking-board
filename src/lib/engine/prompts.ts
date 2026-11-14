@@ -13,6 +13,7 @@ import { getCountry } from "@/data/countries";
 import { DECISION_RULE_LABELS, getMeetingType } from "@/data/meetingTypes";
 import type { ProposalTally } from "./tally";
 import { cachedBlock, plainBlock, type SystemBlock } from "./client";
+import { fmtMin, planSummaryText, timeStatus, type TimeStatus } from "./clock";
 import { STANCE_LABEL, countryNameOf, describeParticipant, nameOf, resolverOf, roleTitleOf } from "./util";
 
 export const DISCLOSURE_RULES: Record<DisclosureLevel, string> = {
@@ -81,7 +82,58 @@ function meetingSection(state: MeetingState): string {
     `背景：${c.background?.trim() || "（特になし）"}`,
     `参加者（id：名前（国・肩書き））：`,
     c.participants.map((x) => `- ${x.id}：${describeParticipant(x, resolverOf(state), c.facilitatorId)}`).join("\n"),
+    `会議時間：${c.durationMinutes}分（会議の中の時間。延長は10分まで）`,
+    carryOverSection(state),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** 前回の会議の要旨と持ち越し事項（第2回以降）。全員共通なので、キャッシュされる共通ブロックに入れる。 */
+export function carryOverSection(state: MeetingState): string {
+  const co = state.config.carryOver;
+  if (!co) return "";
+  const c = co.continuation;
+  const list = (xs: string[]) => (xs.length ? xs.map((x) => `  - ${x}`).join("\n") : "  - なし");
+  return [
+    `## 前回の会議の要旨と持ち越し事項（これは第${co.sessionNumber}回の会議。前回の続きである）`,
+    `前回の議事要旨：${co.previousSummary}`,
+    `前回の到達点：${c.reachedPoint}`,
+    `前回までに合意できたこと：\n${list(c.agreedSoFar)}`,
+    `前回の決定事項：\n${list(co.previousDecisions.map((d) => `${d.title}（${d.status}）`))}`,
+    `前回残った論点：\n${list(c.openIssues)}`,
+    `今回の出発点：${c.nextStartPoint}`,
+    `今回の議題案：\n${list(c.nextAgenda)}`,
+    `前回の議論を踏まえて話す。合意済みの点を蒸し返さず、残った論点から進める。`,
   ].join("\n");
+}
+
+export interface TimeInfo {
+  elapsed: number;
+  duration: number;
+  remaining: number;
+  phaseElapsed: number;
+  phasePlanned: number;
+  status: TimeStatus;
+}
+
+export function timeInfo(state: MeetingState, phaseIndex = state.phaseIndex): TimeInfo | undefined {
+  const k = state.clock;
+  if (!k) return undefined;
+  const d = state.config.durationMinutes;
+  return {
+    elapsed: k.elapsedMin,
+    duration: d,
+    remaining: d - k.elapsedMin,
+    phaseElapsed: Math.max(0, k.elapsedMin - k.phaseStartedAtMin),
+    phasePlanned: k.plan[phaseIndex]?.plannedMin ?? 0,
+    status: timeStatus(k, d, phaseIndex),
+  };
+}
+
+function timeLines(t: TimeInfo | undefined): string {
+  if (!t) return "";
+  return `全体：${fmtMin(t.elapsed)}分経過 / ${t.duration}分（残り${fmtMin(Math.max(0, t.remaining))}分${t.remaining < 0 ? `、${fmtMin(-t.remaining)}分超過` : ""}）\n今のフェーズ：予定${fmtMin(t.phasePlanned)}分、経過${fmtMin(t.phaseElapsed)}分\n時間の状況：${t.status}`;
 }
 
 const SPEAKER_RULES = `## 発言のルール
@@ -146,6 +198,8 @@ export function formatProposals(state: MeetingState, proposals: Proposal[]): str
 export interface SpeakerUserOpts {
   /** The chair is presenting a draft / summary (facilitator-led phase). */
   ledByChair?: boolean;
+  /** Code moved the meeting on because of time: say so briefly. */
+  timeNote?: string;
 }
 
 export function speakerUser(state: MeetingState, p: Participant, phase: PhaseDef, directive: string, opts: SpeakerUserOpts = {}): string {
@@ -153,9 +207,28 @@ export function speakerUser(state: MeetingState, p: Participant, phase: PhaseDef
   const init = state.initialStances?.[p.id];
   const mine = state.utterances.filter((u) => u.speakerId === p.id).slice(-3);
   const myStances = state.minutes.proposals.map((pr) => `- ${pr.id} ${pr.title}：${pr.support[p.id] ? STANCE_LABEL[pr.support[p.id]] : "未表明"}`);
+  const t = timeInfo(state);
+  const phases = getMeetingType(state.config.meetingTypeId).phases;
+  const isOpening = state.phaseIndex === 0 && !!opts.ledByChair;
+  const isClosing = state.phaseIndex === phases.length - 1 && !!opts.ledByChair;
+  const co = state.config.carryOver;
+  const chairExtra: string[] = [];
+  if (isOpening && state.clock)
+    chairExtra.push(
+      `開会の発言では、会議の時間配分を参加者に示す。例：「${planSummaryText(state.config.durationMinutes, state.clock, phases)}」`,
+      co ? `これは第${co.sessionNumber}回なので、前回どこまで進んだか（到達点・合意済みの点・残った論点）を簡単に振り返り、今回はどこから始めるかを述べる。` : "",
+    );
+  if (isClosing)
+    chairExtra.push(
+      state.clock?.timeUp
+        ? `時間切れで閉会する。「本日はここまで。次回は〇〇から」と、合意できた点・合意できなかった点・次回どこから始めるかを明確に言って締める。`
+        : `合意できた点・残る課題・今後の進め方を明確に言って締める。まだ残る論点があれば「次回は〇〇から」と添える。`,
+    );
+  if (opts.timeNote) chairExtra.push(`時間の都合でフェーズを進めた。発言の冒頭で「${opts.timeNote}」と一言添える。`);
   const draftPhase = opts.ledByChair && /案|提言|合意|とりまとめ/.test(phase.name) && !/閉会|開会/.test(phase.name);
   return [
     `## 現在のフェーズ：${phase.name}（目的：${phase.goal}）`,
+    t ? `## 時間\n${timeLines(t)}${t.status === "押している" || t.status === "超過" ? "\n時間が押している。1〜2文で、要点だけを短く話す。" : ""}` : "",
     `## あなたの開会時の立場`,
     init ? `${STANCE_LABEL[init.stance]}：${init.summary}` : "（不明）",
     `## あなたのこれまでの発言（直近3件）`,
@@ -175,7 +248,10 @@ export function speakerUser(state: MeetingState, p: Participant, phase: PhaseDef
         ? `あなたは座長として、とりまとめ案を提示する番です。今回に限り400字程度まで話してよい。そして、案の内容を newProposal に必ず書く（title・body・kind）。`
         : `あなたは座長として、このフェーズの目的を果たす発言をする番です（400字程度まで）。`
       : `あなたの番です。`,
-  ].join("\n");
+    ...chairExtra.filter(Boolean),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 // ---------- Facilitator ----------
@@ -187,6 +263,11 @@ const FACILITATOR_GUIDE = `判断の指針：
 - 公開会議では形式的で丁寧に、オフレコでは砕けた調子で、交渉では争点を絞る
 - facilitatorRemark は短く（0〜2文）。毎ターン話す必要はない（つなぎが不要なときは空にする）
 - 同じ人が3回続けて話さないようにする
+- 時間管理（毎回渡される全体・フェーズごとの経過と残り時間、時間の状況に従う）：
+  - 押している／超過のとき：論点を絞る、発言を短く（1〜2文）求める、発言の少ない人にだけ振る、合意できない論点は「次回に持ち越す」と明言して先へ進む
+  - 余裕があるとき：対立している論点を深掘りする、インタレストに戻る問い（「なぜそれが大事なのですか」）を投げる
+  - 確認ラウンドでは、合意した点・合意できなかった点・次回への持ち越しを明確に宣言する
+  - フェーズの予定時間を超えそうなときは、advancePhase を true にして次に進める（最終的な時間切れはコードが処理する）
 - 進行役（あなた自身）は発言順の対象外。発言回数の公平さの計算に入れず、あなた自身を次の話者に指名するのは、座長として必要なときだけにする`;
 
 export function facilitatorSystem(state: MeetingState, fac: Participant): SystemBlock[] {
@@ -205,9 +286,12 @@ export function facilitatorSystem(state: MeetingState, fac: Participant): System
 export interface FacilitatorCtx {
   phase: PhaseDef;
   phaseIndex: number;
-  budget: number;
+  cap: number;
   phaseTurn: number;
   counts: Record<string, number>;
+  plannedMin: number;
+  phaseElapsedMin: number;
+  timeNote?: string;
   /** Set for round-robin: the speaker chosen by code. */
   fixedSpeakerId?: string;
 }
@@ -228,8 +312,13 @@ export function facilitatorUser(state: MeetingState, ctx: FacilitatorCtx): strin
     .join("\n");
   return [
     `## フェーズ一覧（現在地：${ctx.phaseIndex + 1}/${phases.length}）`,
-    phases.map((ph, i) => `${i === ctx.phaseIndex ? "▶" : " "}${i + 1}. ${ph.name}（${ph.goal}）`).join("\n"),
-    `## 現在のフェーズ：${ctx.phase.name}　${ctx.phaseTurn}/${ctx.budget}ターン済み${ctx.phaseTurn === 0 ? "（このフェーズの最初のターン）" : ""}`,
+    phases
+      .map((ph, i) => `${i === ctx.phaseIndex ? "▶" : " "}${i + 1}. ${ph.name}（予定${fmtMin(state.clock?.plan[i]?.plannedMin ?? 0)}分／${ph.goal}）`)
+      .join("\n"),
+    `## 現在のフェーズ：${ctx.phase.name}　${ctx.phaseTurn}ターン済み${ctx.phaseTurn === 0 ? "（このフェーズの最初のターン）" : ""}`,
+    `## 時間（会議の中の時間）`,
+    timeLines(timeInfo(state, ctx.phaseIndex)),
+    ctx.timeNote ? `（コードが時間の都合で前のフェーズを切り上げた。発言の冒頭で「${ctx.timeNote}」と一言添える）` : "",
     `## 参加者`,
     people,
     `## これまでの議事要旨`,
@@ -240,8 +329,10 @@ export function facilitatorUser(state: MeetingState, ctx: FacilitatorCtx): strin
     formatUtterances(state, state.utterances.slice(-12)),
     ctx.fixedSpeakerId
       ? `## 次の話者は ${nameOf(state, ctx.fixedSpeakerId)}（${ctx.fixedSpeakerId}）に決まっている。進行役としての短い発言（facilitatorRemark）と、その人への指示（prompt）だけを書く。nextSpeakerId にはその id、advancePhase と endMeeting は false。`
-      : `## 次の話者の id（nextSpeakerId）、進行役の短い発言、その人への指示、フェーズを進めるか（advancePhase。予算の半分を超えてから）を判断する。endMeeting は通常 false。`,
-  ].join("\n");
+      : `## 次の話者の id（nextSpeakerId）、進行役の短い発言、その人への指示、フェーズを進めるか（advancePhase。フェーズの予定時間の4割を過ぎてから）を判断する。endMeeting は通常 false。`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Proposal history is code-owned; keep it out of prompts. */
@@ -338,7 +429,8 @@ export const CLOSING_SYSTEM = `あなたは会議の最終とりまとめ担当�
 - stakeholderClaims：参加者ごとに、言い分（claim）とその奥の本当の利害（coreInterest）。全員分
 - keyExchanges：会議の転機となったやりとりを3〜8個。utteranceIds は議事録のものを使う
 - unresolvedIssues、nextSteps を具体的に
-- minutesMarkdown：日本の審議会の議事録の体裁（日時、出席者、議題、議事概要、決定事項、今後の予定）のMarkdown
+- continuation：収束度（converged 収束 / partially 一部収束 / not_converged 未収束）、reachedPoint（どこまで進んだか）、agreedSoFar（ここまでに合意できたこと）、openIssues（残った論点）、nextStartPoint（次回はどこから始めるか）、nextAgenda（次回の議題案）、homework（参加者ごとの宿題。任意、参加者idは入力のものだけ）。時間切れのときは、収束したと言い切らない。決定事項・合意の有無は集計結果に合わせる
+- minutesMarkdown：日本の審議会の議事録の体裁（日時、出席者、議題、議事概要、決定事項、今後の予定）のMarkdown。「次回への持ち越し」の節はコードが追加するので書かない
 - 開示レベルが public / closed / chatham のときは、公式の成果物と議事録に参加者の本音（innerThought）を持ち込まない`;
 
 export function closingUser(
@@ -359,6 +451,7 @@ export function closingUser(
     `## 会議の種類：${type.name}（成果物：${type.outputTitle}）　開示：${state.config.disclosure}　合意ルール：${DECISION_RULE_LABELS[state.config.decisionRule].label}`,
     `## 参加者`,
     ppl,
+    carryOverSection(state),
     `## 議事録`,
     JSON.stringify({ ...state.minutes, proposals: state.minutes.proposals.map(withoutHistory) }),
     `## 合意ルールの集計（コードで計算済み）`,
@@ -367,6 +460,9 @@ export function closingUser(
     sat,
     `## 直近の発言`,
     formatUtterances(state, state.utterances.slice(-15)),
+    `## 時間`,
+    timeLines(timeInfo(state, Math.min(state.phaseIndex, state.clock?.plan.length ? state.clock.plan.length - 1 : 0))),
+    state.clock?.timeUp ? `時間切れで、予定していたフェーズを飛ばして確認ラウンドに移った。` : "予定のフェーズは最後まで進んだ。",
     `成果物のタイトル（title）は「${type.outputTitle}」を基にする。成果物を出力する。`,
   ].join("\n");
 }

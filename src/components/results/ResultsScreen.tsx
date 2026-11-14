@@ -13,6 +13,8 @@ import { Icon } from "@/components/ui/icons";
 import { Markdown } from "@/components/ui/Markdown";
 import { ResearchBriefCard } from "@/components/ui/ResearchBriefCard";
 import { ProposalCard } from "@/components/meeting/SidePanel";
+import { fmtMin } from "@/lib/engine/clock";
+import type { Continuation } from "@/lib/types";
 import { STANCE_LABEL, formatDate, formatUsd } from "@/components/ui/labels";
 import { TONE_SURFACE, TONE_TEXT, consentStyle, exchangeKindStyle, pointKindStyle, type PointKind } from "@/components/ui/semantic";
 
@@ -109,6 +111,105 @@ function SatisfactionRow({ r, p, init }: { r: SatisfactionReport; p?: Participan
   );
 }
 
+const CONVERGENCE: Record<Continuation["convergence"], { label: string; tone: "teal" | "yellow" | "coral" }> = {
+  converged: { label: "収束", tone: "teal" },
+  partially: { label: "一部収束", tone: "yellow" },
+  not_converged: { label: "未収束", tone: "coral" },
+};
+
+function BulletCard({ title, icon, items, empty = "なし" }: { title: string; icon: "check" | "alert" | "arrow-right"; items: string[]; empty?: string }) {
+  const tone = icon === "check" ? "text-teal-strong" : icon === "alert" ? "text-yellow-strong" : "text-blue";
+  return (
+    <Card className="p-4">
+      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+        <Icon name={icon} size={14} className={tone} />
+        {title}
+      </h3>
+      {items.length ? (
+        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed marker:text-ink-3">
+          {items.map((t, i) => (
+            <li key={i}>{t}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-ink-2">{empty}</p>
+      )}
+    </Card>
+  );
+}
+
+function ContinuationSection({ m, pmap }: { m: MeetingState; pmap: PMap }) {
+  const c = m.outcome!.continuation;
+  const router = useRouter();
+  if (!c) return null;
+  const cv = CONVERGENCE[c.convergence];
+  const session = m.config.carryOver?.sessionNumber ?? 1;
+  return (
+    <Section id="continuation" title="到達点と次回への持ち越し" hint={`第${session}回 ・ 会議時間 ${m.config.durationMinutes}分（実際の経過 ${fmtMin(m.clock?.elapsedMin ?? 0)}分）`}>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Badge tone={cv.tone}>{cv.label}</Badge>
+        {c.timeUp && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-ink-2">
+            <Icon name="clock" size={14} /> 時間切れで確認ラウンドに入りました
+          </span>
+        )}
+      </div>
+      <div className="rounded-lg border border-line border-l-2 border-l-ink bg-subtle p-5">
+        <p className="mb-1 text-xs font-medium text-ink-2">どこまで進んだか</p>
+        <p className="whitespace-pre-wrap text-base leading-8 text-ink">{c.reachedPoint}</p>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <BulletCard title="ここまでに合意できたこと" icon="check" items={c.agreedSoFar} />
+        <BulletCard title="残った論点" icon="alert" items={c.openIssues} />
+      </div>
+      <Card className="mt-3 p-4">
+        <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+          <Icon name="arrow-right" size={14} className="text-blue" />
+          次回はここから
+        </h3>
+        <p className="text-sm leading-relaxed">{c.nextStartPoint}</p>
+        {c.nextAgenda.length > 0 && (
+          <>
+            <p className="mb-1 mt-3 text-xs font-medium text-ink-2">次回の議題案</p>
+            <ol className="list-decimal space-y-1 pl-5 text-sm leading-relaxed marker:text-ink-3">
+              {c.nextAgenda.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ol>
+          </>
+        )}
+        {c.homework.length > 0 && (
+          <>
+            <p className="mb-1 mt-3 text-xs font-medium text-ink-2">次回までの宿題</p>
+            <ul className="space-y-1 text-sm leading-relaxed">
+              {c.homework.map((h, i) => (
+                <li key={i}>
+                  <strong className="font-medium">{pmap[h.participantId]?.name ?? h.participantId}</strong>
+                  <span className="text-ink-2">：</span>
+                  {h.task}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </Card>
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <Button
+          variant="primary"
+          size="lg"
+          onClick={() => {
+            const nid = useMeetingStore.getState().createFollowUp(m.config.id);
+            if (nid) router.push(`/meeting/${nid}`);
+          }}
+        >
+          <Icon name="play" size={14} /> 続きの会議を開く
+        </Button>
+        <span className="text-xs text-ink-2">同じ参加者・設定で第{session + 1}回を開きます。事前調査は引き継がれ、今の最終スタンスから始まります。</span>
+      </div>
+    </Section>
+  );
+}
+
 export function ResultsScreen({ id }: { id: string }) {
   const hydrated = useMeetingStore((s) => s.hydrated);
   const m = useMeetingStore((s) => s.meetings[id]);
@@ -186,7 +287,10 @@ function Dashboard({ m, pmap }: { m: MeetingState; pmap: PMap }) {
       )}
 
       <header>
-        <p className="text-xs font-medium tracking-wide text-ink-2">{type.name}</p>
+        <p className="text-xs font-medium tracking-wide text-ink-2">
+          {m.config.carryOver && <span className="mr-2 text-ink">第{m.config.carryOver.sessionNumber}回</span>}
+          {type.name}
+        </p>
         <h1 className="mt-2 text-[28px] font-semibold leading-tight text-ink sm:text-4xl">{o.title || type.outputTitle}</h1>
         <p className="mt-3 text-base text-ink">議題：{m.config.topic}</p>
         <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-2">
@@ -249,6 +353,8 @@ function Dashboard({ m, pmap }: { m: MeetingState; pmap: PMap }) {
           </div>
         )}
       </Section>
+
+      <ContinuationSection m={m} pmap={pmap} />
 
       <Section id="satisfaction" title="納得度" hint="行をクリックすると詳細が開きます">
         <p className="mb-4 text-sm text-ink-2">

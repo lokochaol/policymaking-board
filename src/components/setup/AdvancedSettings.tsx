@@ -4,14 +4,15 @@ import { useState } from "react";
 import type { DecisionRule, DisclosureLevel, MeetingType, ModelTier } from "@/lib/types";
 import { Icon } from "@/components/ui/icons";
 import { DECISION_RULE_LABELS, DISCLOSURE_LABELS } from "@/data/meetingTypes";
+import { DURATION_OPTIONS, estimateTurns } from "@/lib/engine/clock";
 
 const PER_TURN_USD: Record<ModelTier, number> = { economy: 0.004, standard: 0.025, premium: 0.045 };
 const PREP_USD: Record<ModelTier, number> = { economy: 0.02, standard: 0.12, premium: 0.25 };
 const CLOSE_USD: Record<ModelTier, [number, number]> = { economy: [0.05, 0.003], standard: [0.3, 0.015], premium: [0.4, 0.02] };
 const JPY = 150;
 
-export function estimateCost(tier: ModelTier, type: MeetingType, lengthFactor: number, n: number) {
-  const turns = Math.round(type.phases.reduce((s, p) => s + p.turnBudget, 0) * lengthFactor);
+export function estimateCost(tier: ModelTier, durationMinutes: number, n: number) {
+  const turns = estimateTurns(durationMinutes, n);
   const [base, per] = CLOSE_USD[tier];
   const mid = turns * PER_TURN_USD[tier] + n * PREP_USD[tier] + base + n * per;
   return { turns, low: mid * 0.6, high: mid * 1.5 };
@@ -50,31 +51,43 @@ function Seg<T extends string | number>({
 }
 
 export function AdvancedSettings({
-  type,
   participantCount,
   disclosure,
   decisionRule,
-  lengthFactor,
+  durationMinutes,
   modelTier,
   onDisclosure,
   onDecisionRule,
-  onLength,
+  onDuration,
   onTier,
 }: {
   type: MeetingType;
   participantCount: number;
   disclosure: DisclosureLevel;
   decisionRule: DecisionRule;
-  lengthFactor: number;
+  durationMinutes: number;
   modelTier: ModelTier;
   onDisclosure: (v: DisclosureLevel) => void;
   onDecisionRule: (v: DecisionRule) => void;
-  onLength: (v: number) => void;
+  onDuration: (v: number) => void;
   onTier: (v: ModelTier) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const est = estimateCost(modelTier, type, lengthFactor, Math.max(participantCount, 2));
+  const est = estimateCost(modelTier, durationMinutes, Math.max(participantCount, 2));
   return (
+    <>
+    <section className="rounded-md border border-line bg-white px-4 py-4">
+      <p className="mb-2 text-sm font-semibold text-ink">会議時間</p>
+      <Seg
+        label="会議時間"
+        value={durationMinutes}
+        onChange={onDuration}
+        options={DURATION_OPTIONS.map((m) => ({ id: m as number, label: `${m}分` }))}
+      />
+      <p className="mt-2 text-xs text-ink-2">
+        会議の中の時間です。進行役が時間配分を守り、時間が足りなければ残った論点を次回に持ち越します（続きの会議を開けます）。発言は約<span className="tabular-nums">{est.turns}</span>回の見込みです。
+      </p>
+    </section>
     <section className="rounded-md border border-line bg-white">
       <button
         type="button"
@@ -84,7 +97,7 @@ export function AdvancedSettings({
       >
         <span className="text-sm font-semibold text-ink">詳細設定</span>
         <span className="flex items-center gap-2 text-xs text-ink-2">
-          {DISCLOSURE_LABELS[disclosure].label}・{DECISION_RULE_LABELS[decisionRule].label}
+          {DISCLOSURE_LABELS[disclosure].label}・{DECISION_RULE_LABELS[decisionRule].label}・{durationMinutes}分
           <Icon name="chevron" size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
@@ -109,19 +122,6 @@ export function AdvancedSettings({
               options={(Object.keys(DECISION_RULE_LABELS) as DecisionRule[]).map((k) => ({ id: k, label: DECISION_RULE_LABELS[k].label }))}
             />
             <p className="mt-2 text-xs text-ink-2">{DECISION_RULE_LABELS[decisionRule].description}</p>
-          </div>
-          <div>
-            <p className="mb-2 text-sm font-medium">会議の長さ</p>
-            <Seg
-              label="会議の長さ"
-              value={lengthFactor}
-              onChange={onLength}
-              options={[
-                { id: 0.5, label: "短い" },
-                { id: 1, label: "標準" },
-                { id: 2, label: "長い" },
-              ]}
-            />
           </div>
           <div>
             <p className="mb-2 text-sm font-medium">モデルの品質</p>
@@ -152,5 +152,6 @@ export function AdvancedSettings({
         </p>
       )}
     </section>
+    </>
   );
 }

@@ -2,6 +2,8 @@
 
 import { create } from "zustand";
 import type {
+  CarryOver,
+  MeetingClock,
   MeetingConfig,
   MeetingOutcome,
   MeetingState,
@@ -16,6 +18,7 @@ import type {
 } from "@/lib/types";
 import { getMeetingType } from "@/data/meetingTypes";
 import { registerCustomRoles } from "@/data/roles";
+import { createInitialClock, withClock } from "@/lib/engine/clock";
 
 export const STORAGE_KEY = "pmb:meetings:v1";
 
@@ -42,6 +45,7 @@ interface StepResponse {
   phaseTurn: number;
   turn: number;
   status: MeetingStatus;
+  clock?: MeetingClock;
   initialStances?: Record<string, { stance: Stance; summary: string }>;
   usage: UsageTotals;
 }
@@ -111,6 +115,8 @@ interface MeetingStore {
 
   hydrate: () => void;
   createMeeting: (config: MeetingConfig, initialUsage?: UsageTotals) => string;
+  /** 続きの会議 (§10.5): same participants/settings, carry-over from the finished meeting, research copied. Returns the new id. */
+  createFollowUp: (previousId: string) => string | undefined;
   /** Re-run the final write-up (reuses the stored satisfaction reports). */
   regenerateOutcome: (id: string) => void;
   /** Delete the oldest finished meetings to free storage. Returns the number removed. */
@@ -246,6 +252,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
           phaseIndex: data.phaseIndex,
           phaseTurn: data.phaseTurn,
           turn: data.turn,
+          clock: data.clock ?? cur.clock,
           status: data.status === "closing" ? "closing" : cur.status === "paused" ? "paused" : "running",
           initialStances: data.initialStances ? { ...cur.initialStances, ...data.initialStances } : cur.initialStances,
           usage: maxUsage(cur.usage, data.usage),
@@ -294,6 +301,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
       status: "running",
       phaseIndex: idx,
       phaseTurn: idx === m.phaseIndex ? m.phaseTurn : 0,
+      clock: idx === m.phaseIndex ? m.clock : { ...m.clock, phaseStartedAtMin: m.clock.elapsedMin },
       pendingDirective: directive,
       error: undefined,
     }));
@@ -453,7 +461,14 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
           for (const [k, v] of Object.entries(src as Record<string, MeetingState>)) {
             if (v && v.config && Array.isArray(v.utterances)) {
               registerCustomRoles(v.config.customRoles);
-              const fixed = { ...v, research: v.research ?? {} };
+              // Meetings saved before the clock existed are treated as 60 minutes.
+              const base = { ...v, research: v.research ?? {} };
+              let fixed: MeetingState = base;
+              try {
+                fixed = withClock(base, getMeetingType(base.config.meetingTypeId));
+              } catch {
+                /* unknown meeting type: leave as is */
+              }
               meetings[k] = fixed.status === "running" ? { ...fixed, status: "paused" } : fixed;
             }
           }
@@ -480,10 +495,57 @@ export const useMeetingStore = create<MeetingStore>((set, get) => {
         phaseIndex: 0,
         turn: 0,
         phaseTurn: 0,
+        clock: createInitialClock(config, getMeetingType(config.meetingTypeId)),
         utterances: [],
         minutes: emptyMinutes(),
         initialStances: {},
         usage: initialUsage ? { ...initialUsage } : emptyUsage(),
+      };
+      set((s) => ({ meetings: { ...s.meetings, [config.id]: state }, shown: { ...s.shown, [config.id]: 0 } }));
+      saveNow(get().meetings);
+      return config.id;
+    },
+
+    createFollowUp: (previousId) => {
+      const prev = get().meetings[previousId];
+      if (!prev?.outcome) return undefined;
+      const o = prev.outcome;
+      const clip = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
+      const c = o.continuation;
+      const carryOver: CarryOver = {
+        previousMeetingId: previousId,
+        sessionNumber: (prev.config.carryOver?.sessionNumber ?? 1) + 1,
+        previousSummary: clip(prev.minutes.summary || o.executiveSummary, 3800),
+        continuation: {
+          convergence: c.convergence,
+          reachedPoint: clip(c.reachedPoint, 1400),
+          agreedSoFar: c.agreedSoFar.slice(0, 25).map((x) => clip(x, 580)),
+          openIssues: c.openIssues.slice(0, 25).map((x) => clip(x, 580)),
+          nextStartPoint: clip(c.nextStartPoint, 1400),
+          nextAgenda: c.nextAgenda.slice(0, 15).map((x) => clip(x, 580)),
+          homework: c.homework.slice(0, 30).map((h) => ({ participantId: h.participantId, task: clip(h.task, 580) })),
+          timeUp: c.timeUp,
+        },
+        previousDecisions: o.decisions.slice(0, 40).map((d) => ({ title: clip(d.title, 290), status: d.status })),
+      };
+      const config: MeetingConfig = { ...prev.config, id: newId(), createdAt: new Date().toISOString(), carryOver };
+      registerCustomRoles(config.customRoles);
+      // Final stances of the previous session become the starting stances (§10.5).
+      const initialStances: MeetingState["initialStances"] = {};
+      for (const r of o.satisfaction) initialStances[r.participantId] = { stance: r.stanceShift.to, summary: clip(r.comment || r.stanceShift.reason || "", 480) };
+      const research = Object.fromEntries(Object.entries(prev.research ?? {}).map(([k, v]) => [k, { ...v }]));
+      const state: MeetingState = {
+        config,
+        status: "running", // research is copied: skip 事前調査
+        research,
+        phaseIndex: 0,
+        turn: 0,
+        phaseTurn: 0,
+        clock: createInitialClock(config, getMeetingType(config.meetingTypeId)),
+        utterances: [],
+        minutes: emptyMinutes(),
+        initialStances,
+        usage: emptyUsage(),
       };
       set((s) => ({ meetings: { ...s.meetings, [config.id]: state }, shown: { ...s.shown, [config.id]: 0 } }));
       saveNow(get().meetings);
