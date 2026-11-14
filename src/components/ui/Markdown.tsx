@@ -11,7 +11,7 @@ function inline(text: string, keyBase: string): ReactNode[] {
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     if (m[1] !== undefined) out.push(<strong key={`${keyBase}-${i++}`}>{m[1]}</strong>);
-    else out.push(<code key={`${keyBase}-${i++}`} className="rounded bg-paper-2 px-1 text-[0.9em]">{m[2]}</code>);
+    else out.push(<code key={`${keyBase}-${i++}`} className="rounded-sm bg-subtle px-1 text-[0.9em]">{m[2]}</code>);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -38,10 +38,10 @@ export function Markdown({ source, className = "" }: { source: string; className
       const level = h[1].length;
       const cls =
         level === 1
-          ? "font-display mt-2 mb-3 border-b border-line pb-2 text-xl font-bold"
+          ? "mt-2 mb-3 border-b border-line pb-2 text-xl font-semibold"
           : level === 2
-            ? "font-display mt-6 mb-2 text-lg font-bold text-navy"
-            : "mt-4 mb-1 text-base font-bold";
+            ? "mt-6 mb-2 text-base font-semibold"
+            : "mt-4 mb-1 text-sm font-semibold";
       const Tag = (level === 1 ? "h2" : level === 2 ? "h3" : "h4") as "h2" | "h3" | "h4";
       blocks.push(<Tag key={k++} className={cls}>{inline(h[2], `h${k}`)}</Tag>);
       i++;
@@ -61,7 +61,7 @@ export function Markdown({ source, className = "" }: { source: string; className
       }
       const Tag = ordered ? "ol" : "ul";
       blocks.push(
-        <Tag key={k++} className={`my-2 space-y-1 pl-5 ${ordered ? "list-decimal" : "list-disc"} marker:text-gold`}>
+        <Tag key={k++} className={`my-2 space-y-1 pl-5 ${ordered ? "list-decimal" : "list-disc"} marker:text-ink-3`}>
           {items.map((t, j) => (
             <li key={j}>{inline(t, `li${k}-${j}`)}</li>
           ))}
@@ -76,7 +76,7 @@ export function Markdown({ source, className = "" }: { source: string; className
         i++;
       }
       blocks.push(
-        <blockquote key={k++} className="my-2 border-l-4 border-gold/60 bg-gold-soft/40 px-3 py-1 text-ink-soft">
+        <blockquote key={k++} className="my-2 border-l-2 border-ink-3 bg-subtle px-3 py-1 text-ink-2">
           {inline(q.join(" "), `q${k}`)}
         </blockquote>,
       );
@@ -96,7 +96,7 @@ export function Markdown({ source, className = "" }: { source: string; className
               <thead>
                 <tr>
                   {head.map((c, j) => (
-                    <th key={j} className="border border-line bg-paper-2 px-2 py-1 text-left font-bold">
+                    <th key={j} className="border border-line bg-subtle px-2 py-1 text-left font-medium">
                       {inline(c, `th${j}`)}
                     </th>
                   ))}

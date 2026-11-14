@@ -13,7 +13,7 @@ import type { Expression, RoomProps } from "./types";
 import { clamp, darken, hash, lighten, visualWidth } from "./util";
 import styles from "./room.module.css";
 
-const FONT = '"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic","Meiryo","IPAGothic",sans-serif';
+const FONT = "var(--font-inter), var(--font-plex-jp), system-ui, sans-serif";
 
 export function expressionFor(stance: Stance | undefined, id: string): Expression {
   switch (stance) {

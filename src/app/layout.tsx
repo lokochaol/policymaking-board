@@ -1,17 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Noto_Sans_JP, Zen_Maru_Gothic } from "next/font/google";
+import { Inter, IBM_Plex_Sans_JP } from "next/font/google";
 import "./globals.css";
 
-const notoSans = Noto_Sans_JP({
-  variable: "--font-noto",
-  weight: ["400", "500", "700"],
+const inter = Inter({
+  variable: "--font-inter",
+  weight: ["400", "500", "600"],
   subsets: ["latin"],
   display: "swap",
 });
 
-const zenMaru = Zen_Maru_Gothic({
-  variable: "--font-zen",
-  weight: ["500", "700"],
+const plexJp = IBM_Plex_Sans_JP({
+  variable: "--font-plex-jp",
+  weight: ["400", "500", "600"],
   subsets: ["latin"],
   display: "swap",
 });
@@ -28,8 +28,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ja">
-      <body className={`${notoSans.variable} ${zenMaru.variable} antialiased`}>{children}</body>
+    <html lang="ja" className={`${inter.variable} ${plexJp.variable}`}>
+      <body className="bg-bg font-sans text-ink antialiased">{children}</body>
     </html>
   );
 }

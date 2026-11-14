@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { DecisionRule, DisclosureLevel, MeetingType, ModelTier } from "@/lib/types";
+import { Icon } from "@/components/ui/icons";
 import { DECISION_RULE_LABELS, DISCLOSURE_LABELS } from "@/data/meetingTypes";
 
 const PER_TURN_USD: Record<ModelTier, number> = { economy: 0.004, standard: 0.025, premium: 0.045 };
@@ -36,8 +37,8 @@ function Seg<T extends string | number>({
           role="radio"
           aria-checked={o.id === value}
           onClick={() => onChange(o.id)}
-          className={`rounded-full border px-3 py-1.5 text-sm transition ${
-            o.id === value ? "border-navy bg-navy text-white" : "border-line bg-card text-ink-soft hover:border-gold"
+          className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+            o.id === value ? "border-blue bg-blue-tint font-medium text-blue-strong" : "border-line bg-white text-ink-2 hover:border-ink-3 hover:text-ink"
           }`}
         >
           {o.label}
@@ -74,42 +75,43 @@ export function AdvancedSettings({
   const [open, setOpen] = useState(false);
   const est = estimateCost(modelTier, type, lengthFactor, Math.max(participantCount, 2));
   return (
-    <section className="rounded-2xl border border-line bg-card shadow-soft">
+    <section className="rounded-md border border-line bg-white">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
       >
-        <span className="font-display font-bold text-ink">詳細設定</span>
-        <span className="text-xs text-ink-soft">
-          {DISCLOSURE_LABELS[disclosure].label}・{DECISION_RULE_LABELS[decisionRule].label} {open ? "▲" : "▼"}
+        <span className="text-sm font-semibold text-ink">詳細設定</span>
+        <span className="flex items-center gap-2 text-xs text-ink-2">
+          {DISCLOSURE_LABELS[disclosure].label}・{DECISION_RULE_LABELS[decisionRule].label}
+          <Icon name="chevron" size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
       {open && (
         <div className="space-y-5 border-t border-line px-4 py-4">
           <div>
-            <p className="mb-1.5 text-sm font-medium">開示レベル</p>
+            <p className="mb-2 text-sm font-medium">開示レベル</p>
             <Seg
               label="開示レベル"
               value={disclosure}
               onChange={onDisclosure}
               options={(Object.keys(DISCLOSURE_LABELS) as DisclosureLevel[]).map((k) => ({ id: k, label: DISCLOSURE_LABELS[k].label }))}
             />
-            <p className="mt-1.5 text-xs text-ink-soft">{DISCLOSURE_LABELS[disclosure].description}</p>
+            <p className="mt-2 text-xs text-ink-2">{DISCLOSURE_LABELS[disclosure].description}</p>
           </div>
           <div>
-            <p className="mb-1.5 text-sm font-medium">合意ルール</p>
+            <p className="mb-2 text-sm font-medium">合意ルール</p>
             <Seg
               label="合意ルール"
               value={decisionRule}
               onChange={onDecisionRule}
               options={(Object.keys(DECISION_RULE_LABELS) as DecisionRule[]).map((k) => ({ id: k, label: DECISION_RULE_LABELS[k].label }))}
             />
-            <p className="mt-1.5 text-xs text-ink-soft">{DECISION_RULE_LABELS[decisionRule].description}</p>
+            <p className="mt-2 text-xs text-ink-2">{DECISION_RULE_LABELS[decisionRule].description}</p>
           </div>
           <div>
-            <p className="mb-1.5 text-sm font-medium">会議の長さ</p>
+            <p className="mb-2 text-sm font-medium">会議の長さ</p>
             <Seg
               label="会議の長さ"
               value={lengthFactor}
@@ -122,7 +124,7 @@ export function AdvancedSettings({
             />
           </div>
           <div>
-            <p className="mb-1.5 text-sm font-medium">モデルの品質</p>
+            <p className="mb-2 text-sm font-medium">モデルの品質</p>
             <Seg
               label="モデルの品質"
               value={modelTier}
@@ -133,19 +135,19 @@ export function AdvancedSettings({
                 { id: "premium", label: "プレミアム" },
               ]}
             />
-            <div className="mt-3 rounded-xl bg-gold-soft/60 px-3 py-2 text-sm">
+            <div className="mt-3 rounded-md border border-line bg-subtle px-3 py-2 text-sm">
               概算コスト：
-              <strong className="font-bold text-navy">
+              <strong className="font-semibold tabular-nums text-ink">
                 ${est.low.toFixed(2)}〜${est.high.toFixed(2)}
               </strong>
-              <span className="text-ink-soft">（約{Math.round(est.low * JPY).toLocaleString()}〜{Math.round(est.high * JPY).toLocaleString()}円・約{est.turns}ターン）</span>
-              <p className="mt-0.5 text-xs text-ink-soft">事前調査（ウェブ検索）の費用を含みます。APIキー未設定のモックモードでは無料です。</p>
+              <span className="tabular-nums text-ink-2">（約{Math.round(est.low * JPY).toLocaleString()}〜{Math.round(est.high * JPY).toLocaleString()}円・約{est.turns}ターン）</span>
+              <p className="mt-0.5 text-xs text-ink-2">事前調査（ウェブ検索）の費用を含みます。APIキー未設定のモックモードでは無料です。</p>
             </div>
           </div>
         </div>
       )}
       {!open && (
-        <p className="border-t border-line px-4 py-2 text-xs text-ink-soft">
+        <p className="border-t border-line px-4 py-2 text-xs tabular-nums text-ink-2">
           概算コスト ${est.low.toFixed(2)}〜${est.high.toFixed(2)}（事前調査のウェブ検索を含む）
         </p>
       )}

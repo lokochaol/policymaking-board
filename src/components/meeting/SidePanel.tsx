@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MeetingState, Participant, Proposal, Stance, Utterance } from "@/lib/types";
 import { getRole } from "@/data/roles";
-import { Badge, EmptyState, PersonAvatar, StanceDot, Tabs } from "@/components/ui";
+import { Badge, EmptyState, PersonAvatar, ProposalStatusBadge, StanceDot, StanceLegend, Tabs } from "@/components/ui";
+import { Icon } from "@/components/ui/icons";
 import { ResearchBriefCard } from "@/components/ui/ResearchBriefCard";
-import { KEY_EXCHANGE_META, PROPOSAL_KIND_LABEL, PROPOSAL_STATUS_LABEL, PROPOSAL_STATUS_TONE, STANCES, STANCE_COLOR, STANCE_LABEL } from "@/components/ui/labels";
+import { PROPOSAL_KIND_LABEL, STANCES, STANCE_LABEL } from "@/components/ui/labels";
+import { TONE_SURFACE, TONE_TEXT, exchangeKindStyle, stanceStyle } from "@/components/ui/semantic";
 
 export type PanelTab = "log" | "summary" | "map" | "proposals" | "exchanges" | "research";
 
@@ -24,30 +26,37 @@ function Transcript({ utterances, pmap, focusId, stanceByUtt }: { utterances: Ut
   }, [focusId]);
   if (utterances.length === 0) return <EmptyState>発言はまだありません。</EmptyState>;
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
+      <StanceLegend className="pb-1" />
       {utterances.map((u) => {
         const p = pmap[u.speakerId];
-        const color = u.stance && stanceByUtt ? STANCE_COLOR[u.stance] : "#d6d0c2";
+        const color = u.stance && stanceByUtt ? stanceStyle(u.stance).stripe : "var(--color-line)";
         return (
           <article
             key={u.id}
             id={`utt-${u.id}`}
-            className={`fade-up flex gap-2.5 rounded-xl border bg-card p-2.5 ${focusId === u.id ? "border-gold ring-2 ring-gold/30" : "border-line"} ${u.kind === "facilitation" ? "bg-paper-2/50" : ""}`}
+            className={`fade-up flex gap-2.5 rounded-md border p-3 ${focusId === u.id ? "border-blue ring-2 ring-blue/20" : "border-line"} ${u.kind === "facilitation" ? "bg-subtle" : "bg-white"}`}
             style={{ borderLeft: `4px solid ${color}` }}
           >
             {p && <PersonAvatar participant={p} size={34} />}
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-center gap-x-2 text-xs">
-                <strong className="text-sm text-ink">{p?.name ?? "不明"}</strong>
-                <span className="text-ink-soft">{p ? getRole(p.roleId)?.shortTitle : ""}</span>
-                {u.kind === "facilitation" && <Badge tone="gold">🔨 進行</Badge>}
+                <strong className="text-sm font-semibold text-ink">{p?.name ?? "不明"}</strong>
+                <span className="text-ink-2">{p ? getRole(p.roleId)?.shortTitle : ""}</span>
+                {u.kind === "facilitation" && (
+                  <Badge tone="blue">
+                    <Icon name="gavel" size={12} /> 進行
+                  </Badge>
+                )}
                 {u.stance && <StanceDot stance={u.stance} withLabel />}
               </p>
               <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed">{u.text}</p>
               {u.innerThought && (
                 <details className="mt-1 text-xs">
-                  <summary className="cursor-pointer text-gold-dark">💭 本音を見る</summary>
-                  <p className="mt-1 rounded-lg bg-gold-soft/50 px-2 py-1.5 italic leading-relaxed text-ink-soft">{u.innerThought}</p>
+                  <summary className="inline-flex cursor-pointer items-center gap-1 text-blue hover:text-blue-strong">
+                    <Icon name="eye" size={12} /> 本音を見る
+                  </summary>
+                  <p className="mt-1.5 rounded-md bg-subtle px-2.5 py-1.5 leading-relaxed text-ink-2">{u.innerThought}</p>
                 </details>
               )}
             </div>
@@ -65,15 +74,15 @@ function SummaryTab({ m }: { m: MeetingState }) {
   return (
     <div className="space-y-4 text-sm">
       {summary && (
-        <div className="rounded-xl border border-line bg-card p-3">
-          <p className="mb-1 text-xs font-bold text-gold-dark">議事要旨</p>
+        <div className="rounded-md border border-line bg-white p-3.5">
+          <p className="mb-1 text-xs font-medium text-ink-2">議事要旨</p>
           <p className="whitespace-pre-wrap leading-relaxed">{summary}</p>
         </div>
       )}
       {agendaItems.map((a, i) => (
         <div key={`${a.phaseId}-${i}`}>
-          <p className="font-bold text-navy">{a.title}</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-ink-soft marker:text-gold">
+          <p className="font-semibold text-ink">{a.title}</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-ink-2 marker:text-ink-3">
             {a.points.map((pt, j) => (
               <li key={j}>{pt}</li>
             ))}
@@ -88,14 +97,19 @@ function IssueMap({ m, pmap }: { m: MeetingState; pmap: PMap }) {
   const issues = m.minutes.issues;
   if (issues.length === 0) return <EmptyState>論点はまだ整理されていません。</EmptyState>;
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      <StanceLegend className="pb-1" />
       {issues.map((is) => (
-        <div key={is.id} className="rounded-xl border border-line bg-card p-3">
-          <p className="flex items-start justify-between gap-2 text-sm font-bold">
+        <div key={is.id} className="rounded-md border border-line bg-white p-3.5">
+          <p className="flex items-start justify-between gap-2 text-sm font-semibold">
             <span>{is.title}</span>
-            {is.resolved && <Badge tone="green">解決</Badge>}
+            {is.resolved && (
+              <Badge tone="teal">
+                <Icon name="check" size={12} /> 解決
+              </Badge>
+            )}
           </p>
-          <div className="mt-2 grid grid-cols-5 gap-1 rounded-lg bg-gradient-to-r from-rose-100 via-stone-100 to-emerald-100 p-1.5">
+          <div className="mt-2.5 grid grid-cols-5 gap-1 rounded-md bg-gradient-to-r from-coral-tint via-subtle to-teal-tint p-1.5">
             {STANCES.map((st) => (
               <div key={st} className="flex min-h-12 flex-wrap content-start justify-center gap-1">
                 {is.positions
@@ -105,30 +119,32 @@ function IssueMap({ m, pmap }: { m: MeetingState; pmap: PMap }) {
                     if (!p) return null;
                     return (
                       <span key={pos.participantId} title={`${p.name}\n主張：${pos.position}${pos.interest ? `\n本当の利害：${pos.interest}` : ""}`}>
-                        <PersonAvatar participant={p} size={28} ring={STANCE_COLOR[st]} />
+                        <PersonAvatar participant={p} size={28} ring={stanceStyle(st).color} />
                       </span>
                     );
                   })}
               </div>
             ))}
           </div>
-          <div className="mt-0.5 flex justify-between px-1 text-[10px] text-ink-soft">
-            <span>← 反対</span>
-            <span>支持 →</span>
+          <div className="mt-1 flex justify-between px-1 text-[10px] text-ink-2">
+            <span>反対</span>
+            <span>支持</span>
           </div>
           {is.landingZone && (
-            <p className="mt-2 rounded-lg border border-gold/50 bg-gold-soft/60 px-2.5 py-1.5 text-xs leading-relaxed">
-              <strong className="text-gold-dark">落とし所の候補：</strong>
+            <p className="mt-2.5 rounded-md border border-blue/30 bg-blue-tint px-2.5 py-2 text-xs leading-relaxed">
+              <strong className="font-semibold text-blue-strong">落とし所の候補：</strong>
               {is.landingZone}
             </p>
           )}
           <details className="mt-2 text-xs">
-            <summary className="cursor-pointer text-ink-soft">各人の主張と利害</summary>
+            <summary className="inline-flex cursor-pointer items-center gap-1 text-ink-2 hover:text-ink">
+              <Icon name="chevron" size={12} /> 各人の主張と利害
+            </summary>
             <ul className="mt-1.5 space-y-1.5">
               {is.positions.map((pos) => (
                 <li key={pos.participantId} className="leading-relaxed">
-                  <StanceDot stance={pos.stance} /> <strong>{pmap[pos.participantId]?.name}</strong>：{pos.position}
-                  {pos.interest && <span className="block pl-4 text-ink-soft">利害：{pos.interest}</span>}
+                  <StanceDot stance={pos.stance} /> <strong className="font-medium">{pmap[pos.participantId]?.name}</strong>：{pos.position}
+                  {pos.interest && <span className="block pl-4 text-ink-2">利害：{pos.interest}</span>}
                 </li>
               ))}
             </ul>
@@ -141,11 +157,11 @@ function IssueMap({ m, pmap }: { m: MeetingState; pmap: PMap }) {
 
 export function SupportDots({ support, pmap }: { support: Record<string, Stance>; pmap: PMap }) {
   const entries = Object.entries(support);
-  if (entries.length === 0) return <p className="text-xs text-ink-faint">支持の表明はまだありません</p>;
+  if (entries.length === 0) return <p className="text-xs text-ink-3">支持の表明はまだありません</p>;
   return (
     <div className="flex flex-wrap gap-1.5">
       {entries.map(([pid, st]) => (
-        <span key={pid} className="inline-flex items-center gap-1 rounded-full bg-paper-2 px-1.5 py-0.5 text-[11px]" title={`${pmap[pid]?.name ?? pid}：${STANCE_LABEL[st]}`}>
+        <span key={pid} className="inline-flex items-center gap-1 rounded-sm bg-subtle px-1.5 py-0.5 text-[11px] text-ink" title={`${pmap[pid]?.name ?? pid}：${STANCE_LABEL[st]}`}>
           <StanceDot stance={st} size={9} />
           {pmap[pid]?.name.split(/\s|　/)[0]}
         </span>
@@ -156,22 +172,22 @@ export function SupportDots({ support, pmap }: { support: Record<string, Stance>
 
 export function ProposalCard({ p, pmap }: { p: Proposal; pmap: PMap }) {
   return (
-    <div className="rounded-xl border border-line bg-card p-3 text-sm">
+    <div className="rounded-md border border-line bg-white p-3.5 text-sm">
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge tone={PROPOSAL_STATUS_TONE[p.status]}>{PROPOSAL_STATUS_LABEL[p.status]}</Badge>
+        <ProposalStatusBadge status={p.status} />
         <Badge>{PROPOSAL_KIND_LABEL[p.kind]}</Badge>
       </div>
-      <p className="mt-1.5 font-bold text-navy">{p.title}</p>
-      <p className="mt-0.5 text-xs text-ink-soft">提案：{pmap[p.proposedBy]?.name ?? "—"}</p>
+      <p className="mt-2 font-semibold text-ink">{p.title}</p>
+      <p className="mt-0.5 text-xs text-ink-2">提案：{pmap[p.proposedBy]?.name ?? "—"}</p>
       <p className="mt-1.5 whitespace-pre-wrap leading-relaxed">{p.body}</p>
       {p.conditions && p.conditions.length > 0 && (
-        <ul className="mt-1.5 list-disc pl-5 text-xs text-ink-soft">
+        <ul className="mt-1.5 list-disc pl-5 text-xs text-ink-2 marker:text-ink-3">
           {p.conditions.map((c, i) => (
             <li key={i}>{c}</li>
           ))}
         </ul>
       )}
-      <div className="mt-2">
+      <div className="mt-2.5">
         <SupportDots support={p.support} pmap={pmap} />
       </div>
     </div>
@@ -185,25 +201,25 @@ function ExchangeList({ m, pmap, seen, onJump }: { m: MeetingState; pmap: PMap; 
   return (
     <div className="space-y-3">
       {list.map((k) => {
-        const meta = KEY_EXCHANGE_META[k.kind];
+        const meta = exchangeKindStyle(k.kind);
         return (
-          <div key={k.id} className="rounded-xl border border-line bg-card p-3 text-sm">
+          <div key={k.id} className="rounded-md border border-line bg-white p-3.5 text-sm">
             <div className="flex items-center gap-2">
-              <span className="text-lg" aria-hidden>
-                {meta.icon}
+              <span className={`grid h-6 w-6 place-items-center rounded-sm border ${TONE_SURFACE[meta.tone]} ${TONE_TEXT[meta.tone]}`}>
+                <Icon name={meta.icon} size={14} />
               </span>
-              <Badge tone={meta.tone}>{meta.label}</Badge>
+              <span className={`text-xs font-medium ${TONE_TEXT[meta.tone]}`}>{meta.label}</span>
             </div>
-            <p className="mt-1 font-bold text-navy">{k.title}</p>
+            <p className="mt-2 font-semibold text-ink">{k.title}</p>
             <p className="mt-1 leading-relaxed">{k.summary}</p>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">意味：{k.significance}</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-2">意味：{k.significance}</p>
             <div className="mt-2 flex items-center justify-between">
               <span className="flex -space-x-1.5">
                 {k.participantIds.map((id) => pmap[id] && <PersonAvatar key={id} participant={pmap[id]} size={24} />)}
               </span>
               {k.utteranceIds[0] && (
-                <button type="button" onClick={() => onJump(k.utteranceIds[0])} className="text-xs text-sky-700 underline underline-offset-2">
-                  発言録で見る
+                <button type="button" onClick={() => onJump(k.utteranceIds[0])} className="inline-flex items-center gap-1 text-xs text-blue underline-offset-2 hover:text-blue-strong hover:underline">
+                  発言録で見る <Icon name="arrow-right" size={12} />
                 </button>
               )}
             </div>
@@ -257,6 +273,7 @@ export function SidePanel({
             <EmptyState>提案はまだ出ていません。</EmptyState>
           ) : (
             <div className="space-y-3">
+              <StanceLegend className="pb-1" />
               {m.minutes.proposals.map((p) => (
                 <ProposalCard key={p.id} p={p} pmap={pmap} />
               ))}

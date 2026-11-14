@@ -11,6 +11,7 @@ import { COUNTRIES } from "@/data/countries";
 import { createParticipant, rerollParticipant } from "@/lib/participants";
 import { emptyUsage, newId, useMeetingStore } from "@/store/meetingStore";
 import { Button } from "@/components/ui";
+import { Icon } from "@/components/ui/icons";
 import { RolePicker } from "./RolePicker";
 import { RoomPreview } from "./RoomPreview";
 import { MeetingTypePicker, TopicInput } from "./MeetingTypePicker";
@@ -136,17 +137,42 @@ export function SetupScreen() {
     router.push(`/meeting/${id}`);
   };
 
+  const step1Done = participants.length >= 2 && !!facilitator;
+  const step2Done = !!topic.trim();
+  const steps = [
+    { n: 1, id: "step-1", label: "参加者を選ぶ", done: step1Done },
+    { n: 2, id: "step-2", label: "議題を決める", done: step2Done },
+    { n: 3, id: "step-3", label: "会議の種類", done: step1Done && step2Done },
+  ];
+  const currentStep = steps.find((x) => !x.done)?.n;
+
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 pb-32 pt-5 sm:px-6">
-      <header className="mb-5 flex items-center justify-between">
-        <Link href="/" className="text-sm text-ink-soft hover:text-ink">
-          ← ホーム
+    <div className="mx-auto w-full max-w-7xl px-4 pb-32 pt-6 sm:px-6">
+      <header className="mb-8">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-ink-2 hover:text-ink">
+          <Icon name="arrow-left" size={14} /> ホーム
         </Link>
-        <h1 className="font-display text-xl font-bold text-navy sm:text-2xl">新しい会議を開く</h1>
-        <span className="w-12" />
+        <h1 className="mt-4 text-2xl font-semibold text-ink">新しい会議を開く</h1>
+        <ol className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-2" aria-label="手順">
+          {steps.map((st, i) => {
+            const current = st.n === currentStep;
+            const cls = current ? "border-blue bg-blue-tint text-blue-strong" : st.done ? "border-line bg-white text-ink-2" : "border-line bg-white text-ink-3";
+            return (
+              <li key={st.n} className="flex items-center gap-2">
+                <a href={`#${st.id}`} aria-current={current ? "step" : undefined} className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors hover:border-ink-3 ${cls}`}>
+                  <span className={`grid h-5 w-5 place-items-center rounded-full text-[11px] font-semibold tabular-nums ${current ? "bg-blue text-white" : "border border-current"}`}>
+                    {st.done && !current ? <Icon name="check" size={12} /> : st.n}
+                  </span>
+                  <span className={current ? "font-medium" : ""}>{st.label}</span>
+                </a>
+                {i < steps.length - 1 && <span className="hidden h-px w-6 bg-line sm:block" />}
+              </li>
+            );
+          })}
+        </ol>
       </header>
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div id="step-1" className="grid scroll-mt-4 grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <RolePicker
           countryCode={countryCode}
           onCountry={setCountryCode}
@@ -169,50 +195,57 @@ export function SetupScreen() {
         </div>
       </div>
 
-      <div className="mt-8 space-y-8 border-t border-line pt-8">
-        <TopicInput topic={topic} background={background} onTopic={setTopic} onBackground={setBackground} />
-        <StakeholderDiscovery
-          topic={topic}
-          background={background}
-          countryCode={countryCode}
-          selectedRoleIds={participants.map((p) => p.roleId)}
-          customRoles={customRoles}
-          modelTier={modelTier}
-          participantCount={participants.length}
-          maxParticipants={type.maxParticipants}
-          onSpend={onSpend}
-          onRoleCreated={(role) => setCustomRoles((prev) => (prev.some((r) => r.id === role.id) ? prev : [...prev, role]))}
-          onAddRole={(roleId, cc) => addParticipant(roleId, cc)}
-        />
-        <MeetingTypePicker value={typeId} onChange={pickType} />
-        <AdvancedSettings
-          type={type}
-          participantCount={participants.length}
-          disclosure={disclosure}
-          decisionRule={decisionRule}
-          lengthFactor={lengthFactor}
-          modelTier={modelTier}
-          onDisclosure={setDisclosure}
-          onDecisionRule={setDecisionRule}
-          onLength={setLengthFactor}
-          onTier={setModelTier}
-        />
+      <div className="mt-12 space-y-12 border-t border-line pt-12">
+        <div id="step-2" className="scroll-mt-4 space-y-6">
+          <TopicInput topic={topic} background={background} onTopic={setTopic} onBackground={setBackground} />
+          <StakeholderDiscovery
+            topic={topic}
+            background={background}
+            countryCode={countryCode}
+            selectedRoleIds={participants.map((p) => p.roleId)}
+            customRoles={customRoles}
+            modelTier={modelTier}
+            participantCount={participants.length}
+            maxParticipants={type.maxParticipants}
+            onSpend={onSpend}
+            onRoleCreated={(role) => setCustomRoles((prev) => (prev.some((r) => r.id === role.id) ? prev : [...prev, role]))}
+            onAddRole={(roleId, cc) => addParticipant(roleId, cc)}
+          />
+        </div>
+        <div id="step-3" className="scroll-mt-4 space-y-6 border-t border-line pt-12">
+          <MeetingTypePicker value={typeId} onChange={pickType} />
+          <AdvancedSettings
+            type={type}
+            participantCount={participants.length}
+            disclosure={disclosure}
+            decisionRule={decisionRule}
+            lengthFactor={lengthFactor}
+            modelTier={modelTier}
+            onDisclosure={setDisclosure}
+            onDecisionRule={setDecisionRule}
+            onLength={setLengthFactor}
+            onTier={setModelTier}
+          />
+        </div>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur">
+      <div className="pop fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 text-xs text-ink-soft" aria-live="polite">
+          <div className="min-w-0 text-xs text-ink-2" aria-live="polite">
             {problems.length > 0 ? (
-              <span className="text-amber-700">{problems.join(" ／ ")}</span>
+              <span className="flex items-center gap-1.5 text-ink">
+                <Icon name="alert" size={14} className="shrink-0 text-yellow-strong" />
+                {problems.join(" ／ ")}
+              </span>
             ) : (
               <span>
-                {participants.length}人・{type.name}・{topic.trim()}
-                {notes.length > 0 && <span className="ml-2 text-amber-700">{notes.join(" ／ ")}</span>}
+                <span className="tabular-nums">{participants.length}</span>人・{type.name}・{topic.trim()}
+                {notes.length > 0 && <span className="ml-2 text-yellow-strong">{notes.join(" ／ ")}</span>}
               </span>
             )}
           </div>
-          <Button variant="gold" size="lg" disabled={problems.length > 0} onClick={start} className="sm:min-w-52">
-            🔔 開会する
+          <Button variant="primary" size="lg" disabled={problems.length > 0} onClick={start} className="sm:min-w-48">
+            <Icon name="play" size={14} /> 開会する
           </Button>
         </div>
       </div>

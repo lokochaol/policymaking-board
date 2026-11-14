@@ -1,41 +1,88 @@
 @import "tailwindcss";
 
-@theme inline {
-  --color-paper: #faf6ec;
-  --color-paper-2: #f3ecdc;
-  --color-card: #fffdf8;
-  --color-ink: #1a2744;
-  --color-ink-soft: #55607b;
-  --color-ink-faint: #8b93a7;
-  --color-line: #e5dcc8;
-  --color-navy: #1f3159;
-  --color-navy-dark: #14213f;
-  --color-gold: #b8913f;
-  --color-gold-dark: #8f6f27;
-  --color-gold-soft: #f3e8c9;
-  --font-sans: var(--font-noto), "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
-  --font-display: var(--font-zen), var(--font-noto), "Hiragino Maru Gothic ProN", sans-serif;
-  --shadow-soft: 0 1px 2px rgba(26, 39, 68, 0.05), 0 4px 16px rgba(26, 39, 68, 0.06);
-  --shadow-lift: 0 2px 4px rgba(26, 39, 68, 0.06), 0 10px 28px rgba(26, 39, 68, 0.1);
+/*
+ * Visual system (docs/04-visual-system.md)
+ * White base. Colour is used only to carry meaning:
+ *   ink    = structure / text / primary action (no meaning)
+ *   coral  = oppose / rejected / conflict / error / irreversible
+ *   yellow = concern / conditional / caution / pending
+ *   blue   = progress / interaction / info / focus / facilitator / research
+ *   teal   = support / agreement / done
+ * The mapping from domain values to these tokens lives in components/ui/semantic.ts.
+ */
+@theme {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-subtle: #f6f6f5;
+  --color-line: #e7e7e5;
+
+  --color-ink: #50504e;
+  --color-ink-2: #7a7a77;
+  --color-ink-3: #a8a8a4;
+
+  --color-coral: #de675f;
+  --color-coral-tint: #fbeae8;
+  --color-coral-strong: #b9473f;
+
+  --color-yellow: #fce176;
+  --color-yellow-tint: #fef8dd;
+  --color-yellow-strong: #8a6a00;
+
+  --color-blue: #39789b;
+  --color-blue-tint: #e6eff4;
+  --color-blue-strong: #2c6283;
+
+  --color-teal: #81bdb1;
+  --color-teal-tint: #eaf4f2;
+  --color-teal-strong: #3e8a7b;
+
+  --font-sans: var(--font-inter), var(--font-plex-jp), system-ui, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+:root {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --subtle: #f6f6f5;
+  --line: #e7e7e5;
+  --ink-2: #7a7a77;
+  --ink-3: #a8a8a4;
+  --pop-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
 }
 
 html,
 body {
-  background: var(--color-paper);
+  background: var(--bg);
   color: var(--color-ink);
   font-family: var(--font-sans);
   overflow-x: hidden;
 }
 
 body {
-  background-image: radial-gradient(circle at 20% 0%, rgba(184, 145, 63, 0.07), transparent 40%),
-    radial-gradient(circle at 100% 30%, rgba(31, 49, 89, 0.05), transparent 45%);
-  background-attachment: fixed;
   line-height: 1.7;
+  letter-spacing: 0.01em;
+  font-size: 14px;
+  font-feature-settings: "palt" 0;
 }
 
-.font-display {
-  font-family: var(--font-display);
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: 0;
+}
+
+.tnum,
+.tabular-nums {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+.pop {
+  box-shadow: var(--pop-shadow);
 }
 
 button {
@@ -46,8 +93,12 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-gold);
+  outline: 2px solid var(--color-blue);
   outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-blue-tint);
 }
 
 .scroll-thin::-webkit-scrollbar {
@@ -55,14 +106,21 @@ button:disabled {
   height: 8px;
 }
 .scroll-thin::-webkit-scrollbar-thumb {
-  background: #d9cfb8;
+  background: var(--color-line);
   border-radius: 8px;
+}
+
+summary {
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
 }
 
 @keyframes pmb-fade-up {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -70,7 +128,7 @@ button:disabled {
   }
 }
 .fade-up {
-  animation: pmb-fade-up 0.3s ease both;
+  animation: pmb-fade-up 0.25s ease both;
 }
 
 @keyframes pmb-pulse-dot {

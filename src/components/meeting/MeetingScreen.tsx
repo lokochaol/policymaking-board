@@ -8,8 +8,9 @@ import { getMeetingType } from "@/data/meetingTypes";
 import { getRole } from "@/data/roles";
 import Room from "@/components/room/Room";
 import { SPEEDS, useMeetingStore, type SpeedId } from "@/store/meetingStore";
-import { Badge, Button, Card, PersonAvatar } from "@/components/ui";
-import { STANCE_COLOR } from "@/components/ui/labels";
+import { Badge, Button, Card, Notice, PersonAvatar, Spinner } from "@/components/ui";
+import { Icon } from "@/components/ui/icons";
+import { stanceStyle } from "@/components/ui/semantic";
 import { StorageWarning } from "@/components/ui/StorageWarning";
 import { TopBar } from "./TopBar";
 import { SidePanel, type PanelTab } from "./SidePanel";
@@ -74,7 +75,7 @@ export function MeetingScreen({ id }: { id: string }) {
       for (const p of m.config.participants) {
         const b = m.research?.[p.id];
         out[p.id] =
-          b?.status === "done" ? `✅ 準備完了${b.queries.length ? `（検索${b.queries.length}回）` : ""}` : b?.status === "failed" ? "⚠ 調査できず" : b?.status === "researching" ? `🔍 ${b.queries.at(-1) ?? "調査中…"}` : "…順番待ち";
+          b?.status === "done" ? `✓ 準備完了${b.queries.length ? `（検索${b.queries.length}回）` : ""}` : b?.status === "failed" ? "調査できず" : b?.status === "researching" ? `${b.queries.at(-1) ?? "調査中…"}` : "…順番待ち";
       }
       return out;
     }
@@ -94,7 +95,7 @@ export function MeetingScreen({ id }: { id: string }) {
     return (
       <Centered>
         <p>会議が見つかりません。</p>
-        <Link href="/" className="mt-3 inline-block text-sky-700 underline">
+        <Link href="/" className="mt-3 inline-block text-blue underline underline-offset-2">
           ホームへ戻る
         </Link>
       </Centered>
@@ -117,33 +118,36 @@ export function MeetingScreen({ id }: { id: string }) {
       <StorageWarning />
 
       {preparing && (
-        <div className="border-b border-gold/30 bg-gold-soft/70 px-4 py-3 text-center text-sm" role="status">
-          <span className="font-bold text-navy">🔍 事前調査中</span>
-          <span className="ml-2 text-ink-soft">
-            参加者それぞれが、自分なりのやり方で議題を調べています（{researchDone}/{researchTotal}）
+        <div className="border-b border-blue/20 bg-blue-tint px-4 py-3 text-center text-sm" role="status">
+          <span className="inline-flex items-center gap-1.5 font-medium text-blue-strong">
+            <Icon name="search" size={14} /> 事前調査中
           </span>
-          <div className="mx-auto mt-2 h-1.5 max-w-md overflow-hidden rounded-full bg-white/70">
-            <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${(researchDone / Math.max(researchTotal, 1)) * 100}%` }} />
+          <span className="ml-2 text-ink-2">
+            参加者それぞれが、自分なりのやり方で議題を調べています（<span className="tabular-nums">{researchDone}/{researchTotal}</span>）
+          </span>
+          <div className="mx-auto mt-2 h-1 max-w-md overflow-hidden rounded-full bg-white">
+            <div className="h-full rounded-full bg-blue transition-all" style={{ width: `${(researchDone / Math.max(researchTotal, 1)) * 100}%` }} />
           </div>
         </div>
       )}
       {st === "closing" && (
-        <div className="border-b border-gold/30 bg-gold-soft/70 px-4 py-3 text-center text-sm" role="status">
-          <span className="pulse-dot">📝</span> 閉会処理中…納得度の集計と議事録の作成をしています
+        <div className="flex items-center justify-center gap-2 border-b border-blue/20 bg-blue-tint px-4 py-3 text-center text-sm text-blue-strong" role="status">
+          <Spinner small /> 閉会処理中…納得度の集計と議事録の作成をしています
         </div>
       )}
       {st === "error" && (
-        <div className="flex flex-wrap items-center justify-center gap-3 border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+        <Notice kind="error" role="alert" className="mx-4 mt-3 justify-center sm:mx-6">
+          <Icon name="alert" size={16} />
           <span>エラーが発生しました：{m.error}</span>
-          <Button size="sm" variant="primary" onClick={() => act.retry(id)}>
-            再試行
+          <Button size="sm" onClick={() => act.retry(id)}>
+            <Icon name="refresh" size={12} /> 再試行
           </Button>
-        </div>
+        </Notice>
       )}
 
-      <div className={`mx-auto grid w-full max-w-[1600px] flex-1 grid-cols-[minmax(0,1fr)] gap-4 p-3 sm:p-5 ${panelOpen ? "lg:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>
+      <div className={`mx-auto grid w-full max-w-[1600px] flex-1 grid-cols-[minmax(0,1fr)] gap-4 p-4 sm:p-6 ${panelOpen ? "lg:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>
         <main className="min-w-0 space-y-3">
-          <div className="overflow-hidden rounded-2xl border border-line bg-navy-dark shadow-lift">
+          <div className="overflow-hidden rounded-lg border border-line bg-subtle">
             <Room
               theme={type.roomTheme}
               participants={m.config.participants}
@@ -158,44 +162,48 @@ export function MeetingScreen({ id }: { id: string }) {
             />
           </div>
 
-          <Card className="min-h-28 p-4" as="section">
+          <Card className="min-h-28 p-5" as="section">
             {preparing ? (
-              <p className="text-sm text-ink-soft">全員の準備ができると、自動的に開会します。「事前調査」タブで各自の調査メモを見られます。</p>
+              <p className="text-sm text-ink-2">全員の準備ができると、自動的に開会します。「事前調査」タブで各自の調査メモを見られます。</p>
             ) : speaker && current ? (
               <div className="flex items-start gap-3" aria-live="polite">
-                <PersonAvatar participant={speaker} size={44} ring={current.stance ? STANCE_COLOR[current.stance] : undefined} />
+                <PersonAvatar participant={speaker} size={44} ring={current.stance ? stanceStyle(current.stance).color : undefined} />
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-2 text-sm">
-                    <strong>{speaker.name}</strong>
-                    <span className="text-xs text-ink-soft">{getRole(speaker.roleId)?.title}</span>
-                    {current.kind === "facilitation" && <Badge tone="gold">🔨 進行</Badge>}
+                    <strong className="font-semibold">{speaker.name}</strong>
+                    <span className="text-xs text-ink-2">{getRole(speaker.roleId)?.title}</span>
+                    {current.kind === "facilitation" && (
+                      <Badge tone="blue">
+                        <Icon name="gavel" size={12} /> 進行
+                      </Badge>
+                    )}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed sm:text-base">
                     {typed.shown}
-                    {!typed.done && <span className="pulse-dot">▍</span>}
+                    {!typed.done && <span className="pulse-dot text-ink-3">▍</span>}
                   </p>
-                  {honne && current.innerThought && typed.done && <p className="mt-2 rounded-lg bg-gold-soft/60 px-3 py-1.5 text-xs italic leading-relaxed text-ink-soft">💭 {current.innerThought}</p>}
+                  {honne && current.innerThought && typed.done && <p className="mt-2 flex items-start gap-1.5 rounded-md bg-subtle px-3 py-2 text-xs leading-relaxed text-ink-2"><Icon name="eye" size={14} className="mt-0.5" /><span>{current.innerThought}</span></p>}
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-ink-soft">{st === "paused" ? "一時停止中です。「再開」または「1ターン進める」を押してください。" : "まもなく開会します…"}</p>
+              <p className="text-sm text-ink-2">{st === "paused" ? "一時停止中です。「再開」または「1ターン進める」を押してください。" : "まもなく開会します…"}</p>
             )}
           </Card>
 
           {st === "finished" && (
             <div className="text-center">
-              <Link href={`/meeting/${id}/results`} className="inline-flex rounded-full bg-gold px-8 py-3 font-medium text-white shadow-lift hover:bg-gold-dark">
-                結果を見る →
+              <Link href={`/meeting/${id}/results`} className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-5 py-2 text-sm font-medium text-ink hover:border-ink-3">
+                結果を見る <Icon name="arrow-right" size={14} />
               </Link>
             </div>
           )}
         </main>
 
         {panelOpen ? (
-          <aside className="flex h-[70vh] min-h-0 flex-col rounded-2xl border border-line bg-card p-3 shadow-soft lg:sticky lg:top-4 lg:h-[calc(100vh-11rem)] lg:self-start" aria-label="会議パネル">
+          <aside className="flex h-[70vh] min-h-0 flex-col rounded-lg border border-line bg-white p-4 lg:sticky lg:top-4 lg:h-[calc(100vh-11rem)] lg:self-start" aria-label="会議パネル">
             <div className="mb-1 hidden justify-end lg:flex">
-              <button type="button" onClick={() => setPanelOpen(false)} className="text-xs text-ink-soft hover:text-ink">
-                パネルを閉じる ▸
+              <button type="button" onClick={() => setPanelOpen(false)} className="inline-flex items-center gap-1 text-xs text-ink-2 hover:text-ink">
+                パネルを閉じる <Icon name="chevron" size={12} className="-rotate-90" />
               </button>
             </div>
             <SidePanel
@@ -215,9 +223,9 @@ export function MeetingScreen({ id }: { id: string }) {
           <button
             type="button"
             onClick={() => setPanelOpen(true)}
-            className="fixed right-0 top-1/3 z-20 hidden rounded-l-xl border border-r-0 border-line bg-card px-2 py-4 text-xs shadow-soft [writing-mode:vertical-rl] lg:block"
+            className="fixed right-0 top-1/3 z-20 hidden rounded-l-md border border-r-0 border-line bg-white px-2 py-4 text-xs text-ink-2 hover:text-ink [writing-mode:vertical-rl] lg:block"
           >
-            ◂ パネルを開く
+            パネルを開く
           </button>
         )}
       </div>
@@ -237,7 +245,7 @@ export function MeetingScreen({ id }: { id: string }) {
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="grid min-h-screen place-items-center px-4 text-center text-ink-soft">{children}</div>;
+  return <div className="grid min-h-screen place-items-center px-4 text-center text-ink-2">{children}</div>;
 }
 
 function ControlBar({
@@ -264,28 +272,28 @@ function ControlBar({
   const paused = status === "paused" || status === "error";
   const locked = status === "preparing" || status === "closing" || status === "finished";
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 backdrop-blur">
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-center gap-x-3 gap-y-2 px-3 py-2.5 sm:justify-between sm:px-5">
+    <div className="pop fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur">
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-center gap-x-4 gap-y-2 px-4 py-2.5 sm:justify-between sm:px-6">
         <div className="flex items-center gap-2">
           {running ? (
-            <Button variant="primary" onClick={() => act.pause(id)}>
-              ⏸ 一時停止
+            <Button onClick={() => act.pause(id)}>
+              <Icon name="pause" size={14} /> 一時停止
             </Button>
           ) : (
-            <Button variant="primary" disabled={locked || status === "error"} onClick={() => act.resume(id)}>
-              ▶ {turn === 0 ? "開始" : "再開"}
+            <Button disabled={locked || status === "error"} onClick={() => act.resume(id)}>
+              <Icon name="play" size={14} /> {turn === 0 ? "開始" : "再開"}
             </Button>
           )}
           <Button disabled={locked || !paused || busy || status === "error"} onClick={() => act.stepOnce(id)} aria-label="1ターン進める">
-            ⏭ <span className="hidden sm:inline">1ターン進める</span>
+            <Icon name="step" size={14} /> <span className="hidden sm:inline">1ターン進める</span>
             <span className="sm:hidden">1ターン</span>
           </Button>
         </div>
 
         <div className="flex items-center gap-3 text-sm">
           <label className="flex items-center gap-1.5">
-            <span className="text-xs text-ink-soft">速度</span>
-            <select value={speed} onChange={(e) => onSpeed(e.target.value as SpeedId)} className="rounded-lg border border-line bg-card px-2 py-1.5 text-sm">
+            <span className="text-xs text-ink-2">速度</span>
+            <select value={speed} onChange={(e) => onSpeed(e.target.value as SpeedId)} className="rounded-md border border-line bg-white px-2 py-1.5 text-sm text-ink">
               {(Object.keys(SPEEDS) as SpeedId[]).map((k) => (
                 <option key={k} value={k}>
                   {SPEEDS[k].label}
@@ -298,23 +306,24 @@ function ControlBar({
             role="switch"
             aria-checked={honne}
             onClick={onHonne}
-            className="flex items-center gap-1.5 rounded-full border border-line bg-card px-2.5 py-1.5 text-sm hover:bg-paper-2"
+            className="flex items-center gap-2 rounded-md border border-line bg-white px-2.5 py-1.5 text-sm text-ink hover:border-ink-3"
           >
-            <span className={`relative inline-block h-4 w-7 rounded-full transition ${honne ? "bg-gold" : "bg-stone-300"}`}>
+            <span className={`relative inline-block h-4 w-7 rounded-full transition-colors ${honne ? "bg-blue" : "bg-line"}`}>
               <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${honne ? "left-3.5" : "left-0.5"}`} />
             </span>
-            💭 本音
+            <Icon name="eye" size={14} className="text-ink-2" />
+            本音
           </button>
         </div>
 
         <Button
-          variant="danger"
+          variant="primary"
           disabled={locked}
           onClick={() => {
             if (confirm("進行役にまとめに入ってもらい、閉会します。よろしいですか？")) act.requestClose(id);
           }}
         >
-          🔔 閉会する
+          <Icon name="flag-end" size={14} /> 閉会する
         </Button>
       </div>
     </div>

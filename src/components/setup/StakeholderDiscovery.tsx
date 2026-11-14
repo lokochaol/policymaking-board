@@ -4,7 +4,8 @@ import { useMemo, useRef, useState } from "react";
 import type { ModelTier, RoleTemplate, StakeholderGroup, StakeholderSuggestion, UsageTotals } from "@/lib/types";
 import { getRole } from "@/data/roles";
 import { addCustomRole } from "@/lib/customRoles";
-import { Badge, Button, Card } from "@/components/ui";
+import { Badge, Button, Card, Notice, Spinner } from "@/components/ui";
+import { Icon } from "@/components/ui/icons";
 
 const GROUPS: { id: StakeholderGroup; label: string }[] = [
   { id: "direct", label: "直接の当事者" },
@@ -15,7 +16,8 @@ const GROUPS: { id: StakeholderGroup; label: string }[] = [
   { id: "expert", label: "専門家" },
   { id: "overlooked", label: "見落とされがちな声" },
 ];
-const IMPORTANCE = { high: { label: "重要度 高", tone: "gold" }, medium: { label: "重要度 中", tone: "blue" }, low: { label: "重要度 低", tone: "gray" } } as const;
+// Importance is not a stance: ink outline for high, neutral otherwise (no colour).
+const IMPORTANCE = { high: { label: "重要度 高", tone: "ink" }, medium: { label: "重要度 中", tone: "neutral" }, low: { label: "重要度 低", tone: "neutral" } } as const;
 
 export interface StakeholderDiscoveryProps {
   topic: string;
@@ -127,46 +129,53 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
   }
 
   return (
-    <Card className="p-4">
+    <Card className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="font-display text-base font-bold text-ink">この議題に関わる立場を洗い出す</h3>
-          <p className="text-xs text-ink-soft">ウェブで調べて、当事者・影響を受ける人・決定する人・見落とされがちな声まで提案します。</p>
+          <h3 className="text-sm font-semibold text-ink">この議題に関わる立場を洗い出す</h3>
+          <p className="mt-0.5 text-xs text-ink-2">ウェブで調べて、当事者・影響を受ける人・決定する人・見落とされがちな声まで提案します。</p>
         </div>
-        <Button variant="gold" onClick={discover} disabled={!topic.trim() || loading || bulk}>
+        <Button onClick={discover} disabled={!topic.trim() || loading || bulk}>
+          {loading ? <Spinner small /> : <Icon name="search" size={14} />}
           {loading ? "調べています…" : suggestions ? "もう一度洗い出す" : "関係者を洗い出す"}
         </Button>
       </div>
 
       {loading && (
-        <div className="mt-4 flex items-center gap-3 rounded-xl bg-paper-2 p-4 text-sm text-ink-soft" role="status">
+        <div className="mt-4 flex items-center gap-3 rounded-md bg-subtle p-4 text-sm text-ink-2" role="status">
           <Spinner />
           <span>議題に関わる立場を調べています…（1〜2分ほどかかります）</span>
         </div>
       )}
-      {error && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+      {error && (
+        <Notice kind="error" className="mt-3" role="alert">
+          <Icon name="alert" size={16} />
+          {error}
+        </Notice>
+      )}
 
       {suggestions && !loading && (
         <div className="mt-4 space-y-5">
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="primary" size="sm" onClick={addAllHigh} disabled={bulk || slots === 0 || pendingHigh.length === 0}>
+            <Button size="sm" onClick={addAllHigh} disabled={bulk || slots === 0 || pendingHigh.length === 0}>
               {bulk ? "追加しています…" : slots === 0 ? "席が埋まっています" : `重要度・高をすべて追加（${Math.min(pendingHigh.length, slots)}）`}
             </Button>
-            <span className="text-xs text-ink-soft">
+            <span className="text-xs tabular-nums text-ink-2">
               提案 {suggestions.length}件 / 未追加 {pendingTotal}件 / 現在の参加者 {participantCount}人
             </span>
           </div>
           {overLimit && (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <Notice kind="warn">
+              <Icon name="alert" size={16} className="text-yellow-strong" />
               席が{maxParticipants}人までのため、空き{slots}席分だけ追加します。人数が多いと会議が長く、費用も増えます。
-            </p>
+            </Notice>
           )}
           {GROUPS.map((g) => {
             const items = suggestions.filter((s) => s.group === g.id);
             if (!items.length) return null;
             return (
               <section key={g.id}>
-                <h4 className="mb-2 text-sm font-bold text-navy">{g.label}</h4>
+                <h4 className="mb-2 text-xs font-medium text-ink-2">{g.label}</h4>
                 <div className="grid gap-2 md:grid-cols-2">
                   {items.map((s) => {
                     const role = s.roleId ? getRole(s.roleId) : undefined;
@@ -174,22 +183,24 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
                     const done = isDone(s);
                     const busy = creating.has(s.id);
                     return (
-                      <div key={s.id} className={`rounded-xl border p-3 ${done ? "border-emerald-200 bg-emerald-50/50" : "border-line bg-card"}`}>
+                      <div key={s.id} className={`rounded-md border p-3 ${done ? "border-teal/50 bg-teal-tint/60" : "border-line bg-white"}`}>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-bold text-ink">{title}</span>
-                          {!s.roleId && <Badge tone="teal">新しい立場</Badge>}
+                          <span className="text-sm font-medium text-ink">{title}</span>
+                          {!s.roleId && <Badge tone="neutral">新しい立場</Badge>}
                           <Badge tone={IMPORTANCE[s.importance].tone}>{IMPORTANCE[s.importance].label}</Badge>
                         </div>
                         <p className="mt-1.5 text-sm text-ink">{s.reason}</p>
-                        <p className="mt-1 text-xs text-ink-soft">
+                        <p className="mt-1 text-xs text-ink-2">
                           <span className="font-medium">利害：</span>
                           {s.stakes}
                         </p>
                         <div className="mt-2 flex justify-end">
                           {done ? (
-                            <span className="text-sm font-medium text-emerald-700">✓ 追加済み</span>
+                            <span className="inline-flex items-center gap-1 text-sm font-medium text-teal-strong">
+                              <Icon name="check" size={14} /> 追加済み
+                            </span>
                           ) : (
-                            <Button size="sm" variant={s.roleId ? "secondary" : "gold"} disabled={busy || bulk || slots === 0} onClick={() => addOne(s)}>
+                            <Button size="sm" disabled={busy || bulk || slots === 0} onClick={() => addOne(s)}>
                               {busy ? (
                                 <>
                                   <Spinner small /> 作成中…
@@ -211,16 +222,7 @@ export default function StakeholderDiscovery(props: StakeholderDiscoveryProps) {
           })}
         </div>
       )}
-      {cost > 0 && <p className="mt-3 text-right text-[11px] text-ink-faint">この洗い出しの概算費用：約 ${cost.toFixed(2)}</p>}
+      {cost > 0 && <p className="mt-3 text-right text-[11px] tabular-nums text-ink-3">この洗い出しの概算費用：約 ${cost.toFixed(2)}</p>}
     </Card>
-  );
-}
-
-function Spinner({ small = false }: { small?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={`inline-block animate-spin rounded-full border-2 border-gold border-t-transparent ${small ? "h-3 w-3" : "h-5 w-5"}`}
-    />
   );
 }
